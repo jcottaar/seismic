@@ -2,7 +2,7 @@ close all
 clearvars
 
 i_todo = 3;
-for n=1:20
+for n=1:1
 
     %v = py.numpy.load('F:\seismic\data\train_samples\FlatFault_B/vel6_1_0.npy').double();
     v = py.numpy.load('F:\seismic\data\train_samples\FlatVel_A\model\model1.npy').double();

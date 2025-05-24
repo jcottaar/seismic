@@ -82,11 +82,11 @@ def prep_run(velocity, i_source):
         if nt is not None:
             if nt < len(w0):
                 raise ValueError("nt is smaller than condition!")
-            w = np.zeros(nt + 1)  # dummy 포함
-            w[1:len(w0) + 1] = w0
+            w = np.zeros(nt)  # dummy 포함
+            w[0:len(w0)] = w0
         else:
-            w = np.zeros(len(w0) + 1)
-            w[1:] = w0
+            w = np.zeros(len(w0))
+            w[0:] = w0
     
         # 1-based time axis 생성
         if nt is not None:
@@ -98,8 +98,8 @@ def prep_run(velocity, i_source):
 
     def expand_source(s0, nt):
         s0 = np.asarray(s0).flatten()
-        s = np.zeros(nt + 1)
-        s[1:len(s0) + 1] = s0
+        s = np.zeros(nt)
+        s[0:len(s0)] = s0
         return s
     	
     def adjust_sr(coord, dx, nbc):
@@ -147,7 +147,7 @@ def prep_run(velocity, i_source):
     nx = 70
     dx = 10
     nbc = 120
-    nt = 1000
+    nt = 999
     dt = (1e-3)
     freq = 15
     s, _ = (ricker(freq, dt))
@@ -188,7 +188,7 @@ def prep_run(velocity, i_source):
     s_mod = bdt*s
     recv_idx = (igz*nx + igx).astype(np.int32)
 
-    seis = np.zeros((nt + 1, ng))
+    seis = np.zeros((nt, ng))
     
     
    
@@ -231,7 +231,7 @@ def vel_to_seis(velocity,seismogram):
         bx = (nx + tx - 1) // tx
         by = (nz + ty - 1) // ty  
 
-        for it in range(1, nt + 1):
+        for it in range(0, nt):
             # p = (temp1 * p1 - temp2 * p0 +
             #      alpha * (
             #          cp.array(c2) * (cp.roll(p1, 1, axis=1) + cp.roll(p1, -1, axis=1) +
@@ -257,7 +257,7 @@ def vel_to_seis(velocity,seismogram):
             p0, p1, p = p1, p, p0
             p0_flat, p1_flat, p_flat = p1_flat, p_flat, p0_flat
 
-        seis_combined.append(cp.asnumpy(seis[2:,:]))
+        seis_combined.append(cp.asnumpy(seis))
 
     seismogram = copy.deepcopy(seismogram)
     seismogram.data = np.stack(seis_combined)
