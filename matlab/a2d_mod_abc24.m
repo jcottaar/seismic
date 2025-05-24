@@ -48,7 +48,7 @@ abc=AbcCoef2D(v,nbc,dx);
 alpha=(v*dt/dx).^2; kappa=abc*dt;
 temp1=2+2*c1*alpha-kappa; temp2=1-kappa;
 beta_dt = (v*dt).^2;
-s=expand_source(s,nt);
+s=expand_source(s,nt);s(1:6)
 [isx,isz,igx,igz]=adjust_sr(coord,dx,nbc);
 p1=zeros(size(v)); p0=zeros(size(v)); [nzbc,nxbc]=size(v);nzp=nzbc-nbc;nxp=nxbc-nbc;
 
@@ -123,6 +123,7 @@ for it=1:nt
     end
 end
 
+size(p)
 seis = gather(seis);
 
 

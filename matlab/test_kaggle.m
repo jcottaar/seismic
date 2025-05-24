@@ -2,13 +2,13 @@ close all
 clearvars
 
 i_todo = 3;
-for n=1:1
+for n=5:5
 
     %v = py.numpy.load('F:\seismic\data\train_samples\FlatFault_B/vel6_1_0.npy').double();
-    v = py.numpy.load('F:\seismic\data\train_samples\FlatVel_A\model\model1.npy').double();
+    v = py.numpy.load('F:\seismic\data\train_samples\CurveVel_B\model\model1.npy').double();
     vel = squeeze(v(n,1,:,:));
 
-    s = py.numpy.load('F:\seismic\data\train_samples\FlatVel_A/data\data1.npy').double();
+    s = py.numpy.load('F:\seismic\data\train_samples\CurveVel_B/data\data1.npy').double();
     seis_ref = squeeze(s(n,i_todo,1:999,:));
 
     nz=70; nx=70;

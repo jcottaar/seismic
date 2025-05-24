@@ -105,10 +105,10 @@ def prep_run(velocity, i_source):
         return s
     	
     def adjust_sr(coord, dx, nbc):
-        isx = int(round(coord['sx'] / dx)) + 1 + nbc
-        isz = int(round(coord['sz'] / dx)) + 1 + nbc
-        igx = (np.round(np.array(coord['gx']) / dx) + 1 + nbc).astype(int)
-        igz = (np.round(np.array(coord['gz']) / dx) + 1 + nbc).astype(int)
+        isx = int(round(coord['sx'] / dx)) + nbc
+        isz = int(round(coord['sz'] / dx)) + nbc
+        igx = (np.round(np.array(coord['gx']) / dx) + nbc).astype(int)
+        igz = (np.round(np.array(coord['gz']) / dx) + nbc).astype(int)
     
         if abs(coord['sz']) < 0.5:
             isz += 1
@@ -116,8 +116,7 @@ def prep_run(velocity, i_source):
         return isx, isz, igx, igz
     	
     def AbcCoef2D(vel, velmin, nbc, dx):
-        nzbc, nxbc = vel.shape[1] - 1, vel.shape[0] - 1  # 실제 사이즈
-        velmin = np.min(vel[1:, 1:])
+        nzbc, nxbc = vel.shape[0],vel.shape[1]
         nz = nzbc - 2 * nbc
         nx = nxbc - 2 * nbc
     
@@ -125,24 +124,22 @@ def prep_run(velocity, i_source):
         kappa = 3.0 * velmin * np.log(1e7) / (2.0 * a)
     
         damp1d = kappa * (((np.arange(1, nbc + 1) - 1) * dx / a) ** 2)
-        damp = np.zeros((nzbc + 1, nxbc + 1))
+        damp = np.zeros((nzbc, nxbc))
     
-        for iz in range(1, nzbc + 1):
-            damp[iz, 1:nbc + 1] = damp1d[::-1]
-            damp[iz, nx + nbc + 1 : nx + 2 * nbc + 1] = damp1d
+        for iz in range(nzbc):
+            damp[iz, :nbc] = damp1d[::-1]
+            damp[iz, nx + nbc : nx + 2 * nbc] = damp1d
     
-        for ix in range(nbc + 1, nbc + nx + 1):
-            damp[1:nbc + 1, ix] = damp1d[::-1]
-            damp[nz + nbc + 1 : nz + 2 * nbc + 1, ix] = damp1d
+        for ix in range(nbc, nbc + nx):
+            damp[:nbc, ix] = damp1d[::-1]
+            damp[nz + nbc: nz + 2 * nbc, ix] = damp1d
     
         return damp
 
     def padvel(v0, nbc):
         v_padded = np.pad(v0, ((nbc, nbc), (nbc, nbc)), mode='edge')
         nz, nx = v_padded.shape
-        v = np.zeros((nz + 1, nx + 1))
-        v[1:, 1:] = v_padded
-        return v	
+        return v_padded
 
 
     nz = 70
@@ -153,7 +150,6 @@ def prep_run(velocity, i_source):
     dt = (1e-3)
     freq = 15
     s, _ = (ricker(freq, dt))
-
     c1 = (-2.5)
     c2 = (4.0 / 3.0)
     c3 = (-1.0 / 12.0)
@@ -178,7 +174,6 @@ def prep_run(velocity, i_source):
     beta_dt = (v * dt) ** 2
     s = expand_source(s, nt)
     isx, isz, igx, igz = adjust_sr(coord, dx, nbc)
-    seis = np.zeros((nt + 1, ng))
 
     p0 = np.zeros_like(v)
     p1 = np.zeros_like(v)
@@ -189,9 +184,6 @@ def prep_run(velocity, i_source):
     bdt = beta_dt[isz, isx]
     s_mod = bdt*s
     recv_idx = (igz*nx + igx).astype(np.int32)
-
-    seis = np.zeros((nt, ng))
-    
     
    
 
@@ -209,25 +201,19 @@ def prep_run(velocity, i_source):
     src_idx = np.int32(src_idx)
     s_mod = s_mod.astype(base_type)
     recv_idx = cp.array(np.int32(recv_idx))
-    seis = cp.array(seis, dtype=base_type_gpu)
 
-    return p0,p1,p,temp1,temp2,nx,nz,nt,c2,c3,alpha,src_idx,s_mod,recv_idx,igz,igx,seis
+    return p0,p1,p,temp1,temp2,nx,nz,nt,c2,c3,alpha,src_idx,s_mod,recv_idx,igz,igx
 
 @kgs.profile_each_line
 def vel_to_seis(velocity,seismogram):
     velocity.check_constraints()
     seis_combined = []
     for i_source in range(5):
-        p0,p1,p,temp1,temp2,nx,nz,nt,c2,c3,alpha,src_idx,s_mod,recv_idx,igz,igx,seis=prep_run(velocity,i_source)
+        p0,p1,p,temp1,temp2,nx,nz,nt,c2,c3,alpha,src_idx,s_mod,recv_idx,igz,igx=prep_run(velocity,i_source)
 
-        #print(recv_idx,seis)
-
-        #p0_flat   = p0.ravel()
-        #p1_flat   = p1.ravel()
         temp1_flat= temp1.ravel()
         temp2_flat= temp2.ravel()
         alpha_flat= alpha.ravel()
-        #p_flat = p.ravel()
 
         p_complete = cp.zeros((nt+2,p.shape[0],p.shape[1]), dtype=p.dtype)
         p_complete_flat = p_complete.ravel()
@@ -269,88 +255,3 @@ def vel_to_seis(velocity,seismogram):
 
     return seismogram
             
-
-
-
-@kgs.profile_each_line
-def a2d_mod_abc24(v, min_vel, nbc, dx, nt, dt, s, coord):
-    
-    # Flattened strides for the kernel—only cheap views, no new allocs
-    # Note: ravel() here does *not* copy
-    p0_flat   = p0.ravel()
-    p1_flat   = p1.ravel()
-    temp1_flat= temp1.ravel()
-    temp2_flat= temp2.ravel()
-    alpha_flat= alpha.ravel()
-    p_flat = p.ravel()
-
-    tx, ty = 16, 16
-    bx = (nx + tx - 1) // tx
-    by = (ny + ty - 1) // ty  
-
-    # Cast your scalars once
-    nx_i32 = np.int32(nx)
-    ny_i32 = np.int32(ny)
-    c2_f32  = np.float32(c2)
-    c3_f32  = np.float32(c3)
-
-    
-    
-
-    
-
-    # Time Loop (1-based)
-    for it in range(1, nt + 1):
-        # p2 = (temp1 * p1 - temp2 * p0 +
-        #      alpha * (
-        #          c2 * (cp.roll(p1, 1, axis=1) + cp.roll(p1, -1, axis=1) +
-        #                cp.roll(p1, 1, axis=0) + cp.roll(p1, -1, axis=0)) +
-        #          c3 * (cp.roll(p1, 2, axis=1) + cp.roll(p1, -2, axis=1) +
-        #                cp.roll(p1, 2, axis=0) + cp.roll(p1, -2, axis=0))
-        #      ))
-
-        print(p_flat.dtype, s_mod.dtype, src_idx.dtype)
-        update_p(
-            (bx, by), (tx, ty),
-            (
-                p0_flat, p1_flat,
-                temp1_flat, temp2_flat, alpha_flat,
-                p_flat,
-                nx_i32, ny_i32,
-                c2_f32, c3_f32,
-                src_idx, s_mod[it]
-            )
-        )
-
-        #p=pout
-        # Source
-        #p[isz, isx] +=  beta_dt[isz, isx] * s[it]
-
-        #for ig in range(ng):
-        #seis[it, :] = p[igz[0], igx]
-        #seis[it] = p_flat[recv_idx]
-        cp.take(p_flat, recv_idx, out=seis[it])
-        #print(p[recv_idx].shape)
-
-        p0, p1, p = p1, p, p0
-        p0_flat, p1_flat, p_flat = p1_flat, p_flat, p0_flat
-
-    seis = cp.asnumpy(seis)
-    return seis
-    
-# def vel_to_seis_old(vel, min_vel):
-
-    
-#     # 3. 소스 및 수신기 설정
-    
-    
-#     # 4. 파동장 시뮬레이션 수행 : 소스 위치만 바꿔서
-#     seis_data = []
-    
-        
-#         # 시뮬레이션
-#         seis = a2d_mod_abc24(vel, min_vel, nbc, dx, nt, dt, s, coord)
-
-#         seis_data += [seis]
-        
-#     return np.stack(seis_data, axis=0)
