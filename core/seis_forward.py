@@ -12,12 +12,14 @@ base_type_gpu = cp.float32
 # CUDA kernel to update p and add source
 kernel_code = r'''
 extern "C" __global__
-void update_p(const float* __restrict__ p0,
-              const float* __restrict__ p1,
+void update_p(
               const float* __restrict__ temp1,
               const float* __restrict__ temp2,
               const float* __restrict__ alpha,
               float*             __restrict__ pout,
+              const int    ind_offset1,
+              const int    ind_offset2,
+              const int    ind_offset3,
               const int    nx,
               const int    ny,
               const float  c2,
@@ -40,25 +42,25 @@ void update_p(const float* __restrict__ p0,
     int iy_m2 = iy-2; if (iy_m2<0)     iy_m2+=ny;
 
     // Collect neighbors (±1)
-    float t1 = p1[iy  * nx + ix_p1]
-             + p1[iy  * nx + ix_m1]
-             + p1[iy_p1 * nx + ix  ]
-             + p1[iy_m1 * nx + ix  ];
+    float t1 = pout[ind_offset2 + iy  * nx + ix_p1]
+             + pout[ind_offset2 + iy  * nx + ix_m1]
+             + pout[ind_offset2 + iy_p1 * nx + ix  ]
+             + pout[ind_offset2 + iy_m1 * nx + ix  ];
     // Collect neighbors (±2)
-    float t2 = p1[iy  * nx + ix_p2]
-             + p1[iy  * nx + ix_m2]
-             + p1[iy_p2 * nx + ix  ]
-             + p1[iy_m2 * nx + ix  ];
+    float t2 = pout[ind_offset2 + iy  * nx + ix_p2]
+             + pout[ind_offset2 + iy  * nx + ix_m2]
+             + pout[ind_offset2 + iy_p2 * nx + ix  ]
+             + pout[ind_offset2 + iy_m2 * nx + ix  ];
 
-    float out = temp1[idx]*p1[idx] 
-              - temp2[idx]*p0[idx]
+    float out = temp1[idx]*pout[ind_offset2 + idx] 
+              - temp2[idx]*pout[ind_offset1+idx]
               + alpha[idx]*(c2*t1 + c3*t2);
 
     // fused source injection:
     if (idx == src_idx) {
         out += s_val;
     }
-    pout[idx] = out;
+    pout[ind_offset3+idx] = out;
 }
 '''
 module = cp.RawModule(code=kernel_code)
@@ -209,23 +211,26 @@ def prep_run(velocity, i_source):
     recv_idx = cp.array(np.int32(recv_idx))
     seis = cp.array(seis, dtype=base_type_gpu)
 
-    return p0,p1,p,temp1,temp2,nx,nz,nt,c2,c3,alpha,src_idx,s_mod,recv_idx,seis
+    return p0,p1,p,temp1,temp2,nx,nz,nt,c2,c3,alpha,src_idx,s_mod,recv_idx,igz,igx,seis
 
 @kgs.profile_each_line
 def vel_to_seis(velocity,seismogram):
     velocity.check_constraints()
     seis_combined = []
     for i_source in range(5):
-        p0,p1,p,temp1,temp2,nx,nz,nt,c2,c3,alpha,src_idx,s_mod,recv_idx,seis=prep_run(velocity,i_source)
+        p0,p1,p,temp1,temp2,nx,nz,nt,c2,c3,alpha,src_idx,s_mod,recv_idx,igz,igx,seis=prep_run(velocity,i_source)
 
         #print(recv_idx,seis)
 
-        p0_flat   = p0.ravel()
-        p1_flat   = p1.ravel()
+        #p0_flat   = p0.ravel()
+        #p1_flat   = p1.ravel()
         temp1_flat= temp1.ravel()
         temp2_flat= temp2.ravel()
         alpha_flat= alpha.ravel()
-        p_flat = p.ravel()
+        #p_flat = p.ravel()
+
+        p_complete = cp.zeros((nt+2,p.shape[0],p.shape[1]), dtype=p.dtype)
+        p_complete_flat = p_complete.ravel()
     
         tx, ty = 16, 16
         bx = (nx + tx - 1) // tx
@@ -240,27 +245,26 @@ def vel_to_seis(velocity,seismogram):
             #                cp.roll(p1, 2, axis=0) + cp.roll(p1, -2, axis=0))
             #      ))
             # p[isz, isx] +=  beta_dt[isz, isx] * s[it]
+
             update_p(
                 (bx, by), (tx, ty),
                 (
-                    p0_flat, p1_flat,
                     temp1_flat, temp2_flat, alpha_flat,
-                    p_flat,
+                    p_complete_flat,#[(it+2)*(nx*nz):(it+3)*(nx*nz)],
+                    (it)*(nx*nz),
+                    (it+1)*(nx*nz),
+                    (it+2)*(nx*nz),
                     nx, nz,
                     c2, c3,
                     src_idx, s_mod[it]
                 )
             )
 
-            cp.take(p_flat, recv_idx, out=seis[it])
-    
-            p0, p1, p = p1, p, p0
-            p0_flat, p1_flat, p_flat = p1_flat, p_flat, p0_flat
-
-        seis_combined.append(cp.asnumpy(seis))
+        seis = p_complete[2:,igz,igx]
+        seis_combined.append(seis)
 
     seismogram = copy.deepcopy(seismogram)
-    seismogram.data = np.stack(seis_combined)
+    seismogram.data = cp.asnumpy(cp.stack(seis_combined))
     seismogram.check_constraints()
 
     return seismogram
