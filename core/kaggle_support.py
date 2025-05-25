@@ -32,7 +32,6 @@ import subprocess
 import inspect
 
 
-
 '''
 Determine environment and globals
 '''
@@ -66,6 +65,12 @@ if not multiprocess.current_process().name == "MainProcess":
     pid = int(multiprocess.current_process().name[-1])-1    
     os.environ["CUDA_VISIBLE_DEVICES"] = str(np.mod(pid, n_cuda_devices))
     print('CUDA_VISIBLE_DEVICES=', os.environ["CUDA_VISIBLE_DEVICES"]);
+
+import cupy as cp
+
+base_type = np.float64
+base_type_gpu = cp.float64
+
 
 '''
 Helper classes and functions
@@ -220,15 +225,15 @@ Data definition and loading
 class Seismogram(BaseClass):
     filename: str = field(init=True, default=None)
     ind: int = field(init=True, default=None)    
-    data: object = field(init=True, default=None) # 5x999x70
+    data: cp.ndarray = field(init=True, default=None) # 5x999x70
 
     def _check_constraints(self):
         if not self.data is None:
-            assert type(self.data)==np.ndarray
+            assert(self.data.dtype == base_type_gpu)
             assert(self.data.shape == (5,999,70))
 
     def load_to_memory(self):
-        self.data = np.asarray(np.load(self.filename, mmap_mode='r')[self.ind,:,:999,:])
+        self.data = cp.array( np.load(self.filename, mmap_mode='r')[self.ind,:,:999,:], dtype = base_type_gpu )
 
     def unload(self):
         self.data = None
@@ -237,16 +242,19 @@ class Seismogram(BaseClass):
 class Velocity(BaseClass):
     filename: str = field(init=True, default=None)
     ind: int = field(init=True, default=None)    
-    data: np.ndarray = field(init=True, default=None) # 70x70
-    min_vel: object = field(init=True, default=None) # float32 or float64
+    data: cp.ndarray = field(init=True, default=None) # 70x70
+    min_vel: np.ndarray = field(init=True, default=None) 
 
     def _check_constraints(self):
         if not self.data is None:
             assert(self.data.shape == (70,70))
+            assert(self.data.dtype == base_type_gpu)
+            assert(self.min_vel.shape == ())
+            assert(self.min_vel.dtype == base_type)
 
     def load_to_memory(self):
-        self.data = np.asarray(np.load(self.filename, mmap_mode='r')[self.ind,0,:,:])
-        self.min_vel = np.min(self.data)
+        self.data = cp.array( np.load(self.filename, mmap_mode='r')[self.ind,0,:,:], dtype = base_type_gpu )
+        self.min_vel = cp.asnumpy(cp.min(self.data))
 
     def unload(self):
         self.data = None

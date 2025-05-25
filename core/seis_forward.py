@@ -6,9 +6,6 @@ import cupy as cp
 import kaggle_support as kgs
 import copy
 
-base_type = np.float64
-base_type_gpu = cp.float64
-
 # CUDA kernel to update p and add source
 kernel_code = r'''
 extern "C" __global__
@@ -67,8 +64,6 @@ module = cp.RawModule(code=kernel_code)
 update_p = module.get_function('update_p')
 
 
-
-
 def prep_run(velocity, i_source):
     def ricker(f, dt, nt=None):
         nw = int(2.2 / f / dt)
@@ -95,7 +90,7 @@ def prep_run(velocity, i_source):
             tw = np.arange(1, len(w)) * dt
         else:
             tw = np.arange(1, len(w)) * dt
-    
+
         return w, tw
 
     def expand_source(s0, nt):
@@ -114,7 +109,7 @@ def prep_run(velocity, i_source):
             isz += 1
         igz = igz + (np.abs(np.array(coord['gz'])) < 0.5).astype(int)
         return isx, isz, igx, igz
-    	
+
     def AbcCoef2D(vel, velmin, nbc, dx):
         nzbc, nxbc = vel.shape[0],vel.shape[1]
         nz = nzbc - 2 * nbc
@@ -134,10 +129,10 @@ def prep_run(velocity, i_source):
             damp[:nbc, ix] = damp1d[::-1]
             damp[nz + nbc: nz + 2 * nbc, ix] = damp1d
     
-        return damp
+        return cp.array(damp, dtype = kgs.base_type_gpu)
 
     def padvel(v0, nbc):
-        v_padded = np.pad(v0, ((nbc, nbc), (nbc, nbc)), mode='edge')
+        v_padded = cp.pad(v0, ((nbc, nbc), (nbc, nbc)), mode='edge')
         nz, nx = v_padded.shape
         return v_padded
 
@@ -166,7 +161,7 @@ def prep_run(velocity, i_source):
     v = padvel(velocity.data, nbc)
     abc = AbcCoef2D(v, velocity.min_vel, nbc, dx)
 
-    alpha = (v * dt / dx) ** 2
+    alpha = (v * (dt / dx)) ** 2
     nx,nz = alpha.shape
     kappa = abc * dt
     temp1 = 2 + 2 * c1 * alpha - kappa
@@ -175,47 +170,29 @@ def prep_run(velocity, i_source):
     s = expand_source(s, nt)
     isx, isz, igx, igz = adjust_sr(coord, dx, nbc)
 
-    p0 = np.zeros_like(v)
-    p1 = np.zeros_like(v)
-    p = np.zeros_like(v)
-
     src_idx = np.int32(isz*nx + isx)
 
-    bdt = beta_dt[isz, isx]
+    bdt = cp.asnumpy(beta_dt[isz, isx])
     s_mod = bdt*s
-    recv_idx = (igz*nx + igx).astype(np.int32)
     
-   
+    s_mod = s_mod.astype(kgs.base_type)
 
-    p0 = cp.array(p0, dtype=base_type_gpu)
-    p1 = cp.array(p1, dtype=base_type_gpu)
-    p = cp.array(p, dtype=base_type_gpu)
-    temp1 = cp.array(temp1, dtype=base_type_gpu)
-    temp2 = cp.array(temp2, dtype=base_type_gpu)
-    nx = np.int32(nx)
-    nz = np.int32(nz)
-    nt = np.int32(nt)
-    c2 = np.array(c2).astype(base_type)
-    c3 = np.array(c3).astype(base_type)
-    alpha = cp.array(alpha, dtype=base_type_gpu)
-    src_idx = np.int32(src_idx)
-    s_mod = s_mod.astype(base_type)
-    recv_idx = cp.array(np.int32(recv_idx))
+    return temp1,temp2,nx,nz,nt,c2,c3,alpha,src_idx,s_mod,igz,igx
 
-    return p0,p1,p,temp1,temp2,nx,nz,nt,c2,c3,alpha,src_idx,s_mod,recv_idx,igz,igx
+
 
 @kgs.profile_each_line
 def vel_to_seis(velocity,seismogram):
     velocity.check_constraints()
     seis_combined = []
     for i_source in range(5):
-        p0,p1,p,temp1,temp2,nx,nz,nt,c2,c3,alpha,src_idx,s_mod,recv_idx,igz,igx=prep_run(velocity,i_source)
+        temp1,temp2,nx,nz,nt,c2,c3,alpha,src_idx,s_mod,igz,igx=prep_run(velocity,i_source)
 
         temp1_flat= temp1.ravel()
         temp2_flat= temp2.ravel()
         alpha_flat= alpha.ravel()
 
-        p_complete = cp.zeros((nt+2,p.shape[0],p.shape[1]), dtype=p.dtype)
+        p_complete = cp.zeros((nt+2,temp1.shape[0],temp1.shape[1]), dtype=kgs.base_type_gpu)
         p_complete_flat = p_complete.ravel()
     
         tx, ty = 16, 16
@@ -236,7 +213,7 @@ def vel_to_seis(velocity,seismogram):
                 (bx, by), (tx, ty),
                 (
                     temp1_flat, temp2_flat, alpha_flat,
-                    p_complete_flat,#[(it+2)*(nx*nz):(it+3)*(nx*nz)],
+                    p_complete_flat,
                     (it)*(nx*nz),
                     (it+1)*(nx*nz),
                     (it+2)*(nx*nz),
@@ -250,7 +227,7 @@ def vel_to_seis(velocity,seismogram):
         seis_combined.append(seis)
 
     seismogram = copy.deepcopy(seismogram)
-    seismogram.data = cp.asnumpy(cp.stack(seis_combined))
+    seismogram.data = cp.stack(seis_combined)
     seismogram.check_constraints()
 
     return seismogram
