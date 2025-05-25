@@ -6,26 +6,26 @@ import cupy as cp
 import kaggle_support as kgs
 import copy
 
-base_type = np.float32
-base_type_gpu = cp.float32
+base_type = np.float64
+base_type_gpu = cp.float64
 
 # CUDA kernel to update p and add source
 kernel_code = r'''
 extern "C" __global__
 void update_p(
-              const float* __restrict__ temp1,
-              const float* __restrict__ temp2,
-              const float* __restrict__ alpha,
-              float*             __restrict__ pout,
+              const double* __restrict__ temp1,
+              const double* __restrict__ temp2,
+              const double* __restrict__ alpha,
+              double*             __restrict__ pout,
               const int    ind_offset1,
               const int    ind_offset2,
               const int    ind_offset3,
               const int    nx,
               const int    ny,
-              const float  c2,
-              const float  c3,
+              const double  c2,
+              const double  c3,
               const int   src_idx,
-              const float s_val) {
+              const double s_val) {
     int ix = blockDim.x * blockIdx.x + threadIdx.x;
     int iy = blockDim.y * blockIdx.y + threadIdx.y;
     if (ix >= nx || iy >= ny) return;
