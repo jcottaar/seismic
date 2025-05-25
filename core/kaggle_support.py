@@ -235,6 +235,15 @@ class Seismogram(BaseClass):
     def load_to_memory(self):
         self.data = cp.array( np.load(self.filename, mmap_mode='r')[self.ind,:,:999,:], dtype = base_type_gpu )
 
+    def to_vector(self):
+        vec = self.data.flatten()
+        return vec
+
+    def from_vector(self, vec):
+        self.data = cp.reshape(vec, (5,999,70))
+        if debugging_mode >= 2:
+            assert cp.all(self.to_vector()==vec)
+
     def unload(self):
         self.data = None
 

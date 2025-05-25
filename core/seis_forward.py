@@ -6,6 +6,8 @@ import cupy as cp
 import kaggle_support as kgs
 import copy
 
+reference_mode = False # if true will use simpler expressions
+
 # CUDA kernel to update p and add source
 kernel_code = r'''
 extern "C" __global__
@@ -63,122 +65,118 @@ void update_p(
 module = cp.RawModule(code=kernel_code)
 update_p = module.get_function('update_p')
 
+# Precompute stuff
+def ricker(f, dt, nt=None):
+    nw = int(2.2 / f / dt)
+    nw = 2 * (nw // 2) + 1
+    nc = nw // 2 + 1  # 중심 인덱스를 1-based 기준으로 설정
 
-def prep_run(velocity, i_source):
-    def ricker(f, dt, nt=None):
-        nw = int(2.2 / f / dt)
-        nw = 2 * (nw // 2) + 1
-        nc = nw // 2 + 1  # 중심 인덱스를 1-based 기준으로 설정
-    
-        k = np.arange(1, nw + 1)  # 1-based index
-        alpha = (nc - k) * f * dt * np.pi
-        beta = alpha ** 2
-        w0 = (1.0 - 2.0 * beta) * np.exp(-beta)
-    
-        # 1-based wavelet 생성
-        if nt is not None:
-            if nt < len(w0):
-                raise ValueError("nt is smaller than condition!")
-            w = np.zeros(nt)  # dummy 포함
-            w[0:len(w0)] = w0
-        else:
-            w = np.zeros(len(w0))
-            w[0:] = w0
-    
-        # 1-based time axis 생성
-        if nt is not None:
-            tw = np.arange(1, len(w)) * dt
-        else:
-            tw = np.arange(1, len(w)) * dt
+    k = np.arange(1, nw + 1)  # 1-based index
+    alpha = (nc - k) * f * dt * np.pi
+    beta = alpha ** 2
+    w0 = (1.0 - 2.0 * beta) * np.exp(-beta)
 
-        return w, tw
+    # 1-based wavelet 생성
+    if nt is not None:
+        if nt < len(w0):
+            raise ValueError("nt is smaller than condition!")
+        w = np.zeros(nt)  # dummy 포함
+        w[0:len(w0)] = w0
+    else:
+        w = np.zeros(len(w0))
+        w[0:] = w0
 
-    def expand_source(s0, nt):
-        s0 = np.asarray(s0).flatten()
-        s = np.zeros(nt)
-        s[0:len(s0)] = s0
-        return s
-    	
-    def adjust_sr(coord, dx, nbc):
-        isx = int(round(coord['sx'] / dx)) + nbc
-        isz = int(round(coord['sz'] / dx)) + nbc
-        igx = (np.round(np.array(coord['gx']) / dx) + nbc).astype(int)
-        igz = (np.round(np.array(coord['gz']) / dx) + nbc).astype(int)
-    
-        if abs(coord['sz']) < 0.5:
-            isz += 1
-        igz = igz + (np.abs(np.array(coord['gz'])) < 0.5).astype(int)
-        return isx, isz, igx, igz
+    # 1-based time axis 생성
+    if nt is not None:
+        tw = np.arange(1, len(w)) * dt
+    else:
+        tw = np.arange(1, len(w)) * dt
 
-    def AbcCoef2D(nzbc, nxbc, nbc, dx):
-        #nzbc, nxbc = vel.shape[0],vel.shape[1]
-        nz = nzbc - 2 * nbc
-        nx = nxbc - 2 * nbc
-    
-        a = (nbc - 1) * dx
-        kappa = 3.0 * np.log(1e7) / (2.0 * a)
-    
-        damp1d = kappa * (((np.arange(1, nbc + 1) - 1) * dx / a) ** 2)
-        damp = np.zeros((nzbc, nxbc))
-    
-        for iz in range(nzbc):
-            damp[iz, :nbc] = damp1d[::-1]
-            damp[iz, nx + nbc : nx + 2 * nbc] = damp1d
-    
-        for ix in range(nbc, nbc + nx):
-            damp[:nbc, ix] = damp1d[::-1]
-            damp[nz + nbc: nz + 2 * nbc, ix] = damp1d
-    
-        return cp.array(damp, dtype = kgs.base_type_gpu)
+    return w, tw
 
-    def padvel(v0, nbc):
-        v_padded = cp.pad(v0, ((nbc, nbc), (nbc, nbc)), mode='edge')
-        return v_padded
+def expand_source(s0, nt):
+    s0 = np.asarray(s0).flatten()
+    s = np.zeros(nt)
+    s[0:len(s0)] = s0
+    return s
 
+def AbcCoef2D(nzbc, nxbc, nbc, dx):
+    #nzbc, nxbc = vel.shape[0],vel.shape[1]
+    nz = nzbc - 2 * nbc
+    nx = nxbc - 2 * nbc
 
-    nz = 70
-    nx = 70
-    dx = 10
-    nbc = 120
-    nt = 999
-    dt = (1e-3)
-    freq = 15
-    s, _ = (ricker(freq, dt))
-    c1 = (-2.5)
-    c2 = (4.0 / 3.0)
-    c3 = (-1.0 / 12.0)
+    a = (nbc - 1) * dx
+    kappa = 3.0 * np.log(1e7) / (2.0 * a)
 
+    damp1d = kappa * (((np.arange(1, nbc + 1) - 1) * dx / a) ** 2)
+    damp = np.zeros((nzbc, nxbc))
+
+    for iz in range(nzbc):
+        damp[iz, :nbc] = damp1d[::-1]
+        damp[iz, nx + nbc : nx + 2 * nbc] = damp1d
+
+    for ix in range(nbc, nbc + nx):
+        damp[:nbc, ix] = damp1d[::-1]
+        damp[nz + nbc: nz + 2 * nbc, ix] = damp1d
+
+    return cp.array(damp, dtype = kgs.base_type_gpu)
+
+        	
+def adjust_sr(coord, dx, nbc):
+    isx = int(round(coord['sx'] / dx)) + nbc
+    isz = int(round(coord['sz'] / dx)) + nbc
+    igx = (np.round(np.array(coord['gx']) / dx) + nbc).astype(int)
+    igz = (np.round(np.array(coord['gz']) / dx) + nbc).astype(int)
+
+    if abs(coord['sz']) < 0.5:
+        isz += 1
+    igz = igz + (np.abs(np.array(coord['gz'])) < 0.5).astype(int)
+    return isx, isz, igx, igz
+
+nz = 70
+nx = 70
+dx = 10
+nbc = 120
+nt = 999
+dt = (1e-3)
+freq = 15
+s, _ = (ricker(freq, dt))
+s = expand_source(s, nt)
+c1 = (-2.5)
+c2 = (4.0 / 3.0)
+c3 = (-1.0 / 12.0)
+
+src_idx_list = []
+for i_source in range(5):
     coord = {}
     source_x = [0, 17, 34, 52, 69][i_source]
     coord['sx'] = source_x * dx        
     coord['sz'] = 1 * dx
     coord['gx'] = np.arange(0, nx) * dx
     coord['gz'] = np.ones_like(coord['gx']) * dx
+    isx, isz, igx, igz = adjust_sr(coord, dx, nbc)
+    src_idx = np.int32(isz*310 + isx)
+    src_idx_list.append(src_idx)
 
-    ng = len(coord['gx'])
+ng = len(coord['gx'])
 
-    damp = AbcCoef2D(310,310, nbc, dx)
+damp = AbcCoef2D(310,310, nbc, dx)
+nx,nz = 310,310
 
-    v = padvel(velocity.data, nbc)
+def prep_run(velocity, i_source):
+
+    v = cp.pad(velocity.data, ((nbc, nbc), (nbc, nbc)), mode='edge')
     abc = velocity.min_vel*damp
 
-    alpha = (v * (dt / dx)) ** 2
-    nx,nz = alpha.shape
+    alpha = (v * (dt / dx)) ** 2    
     kappa = abc * dt
     temp1 = 2 + 2 * c1 * alpha - kappa
     temp2 = 1 - kappa
-    beta_dt = (v * dt) ** 2
-    s = expand_source(s, nt)
-    isx, isz, igx, igz = adjust_sr(coord, dx, nbc)
 
-    src_idx = np.int32(isz*nx + isx)
-
-    bdt = cp.asnumpy(beta_dt[isz, isx])
+    bdt = (cp.asnumpy(v[isz, isx])*dt)**2
     s_mod = bdt*s
     
-    s_mod = s_mod.astype(kgs.base_type)
-
-    return temp1,temp2,nx,nz,nt,c2,c3,alpha,src_idx,s_mod,igz,igx
+    return temp1,temp2,alpha,s_mod
 
 
 
@@ -188,7 +186,8 @@ def vel_to_seis(velocity,seismogram):
     seismogram.check_constraints()
     seis_combined = []
     for i_source in range(5):
-        temp1,temp2,nx,nz,nt,c2,c3,alpha,src_idx,s_mod,igz,igx=prep_run(velocity,i_source)
+        temp1,temp2,alpha,s_mod=prep_run(velocity,i_source)
+        src_idx = src_idx_list[i_source]
 
         temp1_flat= temp1.ravel()
         temp2_flat= temp2.ravel()
@@ -202,28 +201,33 @@ def vel_to_seis(velocity,seismogram):
         by = (nz + ty - 1) // ty  
 
         for it in range(0, nt):
-            # p = (temp1 * p1 - temp2 * p0 +
-            #      alpha * (
-            #          cp.array(c2) * (cp.roll(p1, 1, axis=1) + cp.roll(p1, -1, axis=1) +
-            #                cp.roll(p1, 1, axis=0) + cp.roll(p1, -1, axis=0)) +
-            #          cp.array(c3) * (cp.roll(p1, 2, axis=1) + cp.roll(p1, -2, axis=1) +
-            #                cp.roll(p1, 2, axis=0) + cp.roll(p1, -2, axis=0))
-            #      ))
-            # p[isz, isx] +=  beta_dt[isz, isx] * s[it]
+            if reference_mode:
+                p1 = p_complete[it+1,...]
+                p0 = p_complete[it,...]
+                p_complete[it+2,...] = (temp1 * p1 - temp2 * p0 +
+                     alpha * (
+                         cp.array(c2) * (cp.roll(p1, 1, axis=1) + cp.roll(p1, -1, axis=1) +
+                               cp.roll(p1, 1, axis=0) + cp.roll(p1, -1, axis=0)) +
+                         cp.array(c3) * (cp.roll(p1, 2, axis=1) + cp.roll(p1, -2, axis=1) +
+                               cp.roll(p1, 2, axis=0) + cp.roll(p1, -2, axis=0))
+                     ))
+                p_complete[it+2,...].ravel()[src_idx] += s_mod[it]
 
-            update_p(
-                (bx, by), (tx, ty),
-                (
-                    temp1_flat, temp2_flat, alpha_flat,
-                    p_complete_flat,
-                    (it)*(nx*nz),
-                    (it+1)*(nx*nz),
-                    (it+2)*(nx*nz),
-                    nx, nz,
-                    c2, c3,
-                    src_idx, s_mod[it]
+            else:
+
+                update_p(
+                    (bx, by), (tx, ty),
+                    (
+                        temp1_flat, temp2_flat, alpha_flat,
+                        p_complete_flat,
+                        (it)*(nx*nz),
+                        (it+1)*(nx*nz),
+                        (it+2)*(nx*nz),
+                        nx, nz,
+                        c2, c3,
+                        src_idx, s_mod[it]
+                    )
                 )
-            )
 
         seis = p_complete[2:,igz,igx]
         seis_combined.append(seis)
