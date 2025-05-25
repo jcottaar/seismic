@@ -243,18 +243,29 @@ class Velocity(BaseClass):
     filename: str = field(init=True, default=None)
     ind: int = field(init=True, default=None)    
     data: cp.ndarray = field(init=True, default=None) # 70x70
-    min_vel: np.ndarray = field(init=True, default=None) 
+    min_vel: cp.ndarray = field(init=True, default=None) 
 
     def _check_constraints(self):
         if not self.data is None:
             assert(self.data.shape == (70,70))
             assert(self.data.dtype == base_type_gpu)
             assert(self.min_vel.shape == ())
-            assert(self.min_vel.dtype == base_type)
+            assert(self.min_vel.dtype == base_type_gpu)
 
     def load_to_memory(self):
         self.data = cp.array( np.load(self.filename, mmap_mode='r')[self.ind,0,:,:], dtype = base_type_gpu )
-        self.min_vel = cp.asnumpy(cp.min(self.data))
+        self.min_vel = cp.min(self.data)
+
+    def to_vector(self):
+        vec = cp.concatenate((self.data.flatten(), cp.reshape(self.min_vel, (1))))
+        return vec
+
+    def from_vector(self, vec):
+        self.data = cp.reshape(vec[:-1], (70,70))
+        self.min_vel = vec[-1]
+        if debugging_mode >= 2:
+            assert cp.all(self.to_vector()==vec)
+        
 
     def unload(self):
         self.data = None

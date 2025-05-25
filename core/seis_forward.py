@@ -110,13 +110,13 @@ def prep_run(velocity, i_source):
         igz = igz + (np.abs(np.array(coord['gz'])) < 0.5).astype(int)
         return isx, isz, igx, igz
 
-    def AbcCoef2D(vel, velmin, nbc, dx):
-        nzbc, nxbc = vel.shape[0],vel.shape[1]
+    def AbcCoef2D(nzbc, nxbc, nbc, dx):
+        #nzbc, nxbc = vel.shape[0],vel.shape[1]
         nz = nzbc - 2 * nbc
         nx = nxbc - 2 * nbc
     
         a = (nbc - 1) * dx
-        kappa = 3.0 * velmin * np.log(1e7) / (2.0 * a)
+        kappa = 3.0 * np.log(1e7) / (2.0 * a)
     
         damp1d = kappa * (((np.arange(1, nbc + 1) - 1) * dx / a) ** 2)
         damp = np.zeros((nzbc, nxbc))
@@ -133,7 +133,6 @@ def prep_run(velocity, i_source):
 
     def padvel(v0, nbc):
         v_padded = cp.pad(v0, ((nbc, nbc), (nbc, nbc)), mode='edge')
-        nz, nx = v_padded.shape
         return v_padded
 
 
@@ -158,8 +157,10 @@ def prep_run(velocity, i_source):
 
     ng = len(coord['gx'])
 
+    damp = AbcCoef2D(310,310, nbc, dx)
+
     v = padvel(velocity.data, nbc)
-    abc = AbcCoef2D(v, velocity.min_vel, nbc, dx)
+    abc = velocity.min_vel*damp
 
     alpha = (v * (dt / dx)) ** 2
     nx,nz = alpha.shape
@@ -184,6 +185,7 @@ def prep_run(velocity, i_source):
 @kgs.profile_each_line
 def vel_to_seis(velocity,seismogram):
     velocity.check_constraints()
+    seismogram.check_constraints()
     seis_combined = []
     for i_source in range(5):
         temp1,temp2,nx,nz,nt,c2,c3,alpha,src_idx,s_mod,igz,igx=prep_run(velocity,i_source)
