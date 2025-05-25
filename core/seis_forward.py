@@ -41,17 +41,17 @@ void update_p(
     int iy_m2 = iy-2; if (iy_m2<0)     iy_m2+=ny;
 
     // Collect neighbors (±1)
-    float t1 = pout[ind_offset2 + iy  * nx + ix_p1]
+    double t1 = pout[ind_offset2 + iy  * nx + ix_p1]
              + pout[ind_offset2 + iy  * nx + ix_m1]
              + pout[ind_offset2 + iy_p1 * nx + ix  ]
              + pout[ind_offset2 + iy_m1 * nx + ix  ];
     // Collect neighbors (±2)
-    float t2 = pout[ind_offset2 + iy  * nx + ix_p2]
+    double t2 = pout[ind_offset2 + iy  * nx + ix_p2]
              + pout[ind_offset2 + iy  * nx + ix_m2]
              + pout[ind_offset2 + iy_p2 * nx + ix  ]
              + pout[ind_offset2 + iy_m2 * nx + ix  ];
 
-    float out = temp1[idx]*pout[ind_offset2 + idx] 
+    double out = temp1[idx]*pout[ind_offset2 + idx] 
               - temp2[idx]*pout[ind_offset1+idx]
               + alpha[idx]*(c2*t1 + c3*t2);
 
@@ -202,24 +202,28 @@ def prep_run_diff(velocity,velocity_diff, min_vel_diff):
 
 
 @kgs.profile_each_line
-def vel_to_seis(velocity,seismogram):
+def vel_to_seis(velocity,seismogram,return_p_complete_list=False):
     velocity.check_constraints()
     seismogram.check_constraints()
     seis_combined = []
     temp1,temp2,alpha,s_mod=prep_run(velocity)
+    
+    temp1_flat= temp1.ravel()
+    temp2_flat= temp2.ravel()
+    alpha_flat= alpha.ravel()
+
+    tx, ty = 16, 16
+    bx = (nx + tx - 1) // tx
+    by = (nz + ty - 1) // ty  
+
+    p_complete_list = []
     for i_source in range(5):        
         src_idx = src_idx_list[i_source]
-
-        temp1_flat= temp1.ravel()
-        temp2_flat= temp2.ravel()
-        alpha_flat= alpha.ravel()
 
         p_complete = cp.zeros((nt+2,temp1.shape[0],temp1.shape[1]), dtype=kgs.base_type_gpu)
         p_complete_flat = p_complete.ravel()
     
-        tx, ty = 16, 16
-        bx = (nx + tx - 1) // tx
-        by = (nz + ty - 1) // ty  
+        
 
         for it in range(0, nt):
             if reference_mode:
@@ -253,9 +257,84 @@ def vel_to_seis(velocity,seismogram):
         seis = p_complete[2:,igz,igx]
         seis_combined.append(seis)
 
+        #if i_source==0:
+        #    kgs.dill_save(kgs.temp_dir + 'nondiff', (p_complete[2,...],p_complete[3,...],p_complete[-1,...],x,xx,xxx))
+
+        if return_p_complete_list:
+            p_complete_list.append(cp.asnumpy(p_complete))
+
     seismogram = copy.deepcopy(seismogram)
     seismogram.data = cp.stack(seis_combined)
     seismogram.check_constraints()
 
-    return seismogram
+    return seismogram, p_complete_list
+
+@kgs.profile_each_line
+def vel_to_seis_diff(velocity, seismogram, p_complete_list, vel_diff_vector):
+    # vel_diff_vector: Nx4901
+    # outputs seis_diff_vector: Nx349650
+    velocity.check_constraints()
+    seismogram.check_constraints()
+    assert(len(p_complete_list)==5)
+    for p_complete in p_complete_list:        
+        assert(p_complete.shape == (1001,310,310))                            
+    N = vel_diff_vector.shape[0]
+    assert(vel_diff_vector.shape == (N,4901))
+
+    seis_diff_vector_combined = []
+    temp1,temp2,alpha,s_mod=prep_run(velocity)
+    temp1_diff,temp2_diff,alpha_diff,s_mod_diff=prep_run_diff(velocity, cp.reshape(vel_diff_vector[:,:-1], (N,70,70)), vel_diff_vector[:,-1])
+    s_mod_diff = cp.array(s_mod_diff)
+
+    tx, ty = 16, 16
+    bx = (nx + tx - 1) // tx
+    by = (nz + ty - 1) // ty  
+
+    for i_source in range(5):        
+        p_complete = cp.array(p_complete_list[i_source])
+        src_idx = src_idx_list[i_source]
+
+        p0_diff = cp.zeros_like(alpha_diff)
+        p1_diff = cp.zeros_like(p0_diff)
+        p_diff = cp.zeros_like(p0_diff)
+
+        seis_diff = cp.zeros( (N,999,70) , dtype = kgs.base_type_gpu)
+       
+        for it in range(0, nt):
+            print(it)
+            p1 = p_complete[it+1,...]
+            p0 = p_complete[it,...]
+
+            p_diff = (temp1_diff*p1 + temp1*p1_diff - temp2_diff*p0 - temp2*p0_diff + 
+                alpha_diff * (
+                     cp.array(c2) * (cp.roll(p1, 1, axis=1) + cp.roll(p1, -1, axis=1) +
+                           cp.roll(p1, 1, axis=0) + cp.roll(p1, -1, axis=0)) +
+                     cp.array(c3) * (cp.roll(p1, 2, axis=1) + cp.roll(p1, -2, axis=1) +
+                           cp.roll(p1, 2, axis=0) + cp.roll(p1, -2, axis=0))
+                 ) + 
+                alpha * (
+                     cp.array(c2) * (cp.roll(p1_diff, 1, axis=2) + cp.roll(p1_diff, -1, axis=2) +
+                           cp.roll(p1_diff, 1, axis=1) + cp.roll(p1_diff, -1, axis=1)) +
+                     cp.array(c3) * (cp.roll(p1_diff, 2, axis=2) + cp.roll(p1_diff, -2, axis=2) +
+                           cp.roll(p1_diff, 2, axis=1) + cp.roll(p1_diff, -2, axis=1))
+                 ))     
+            for ii in range(N):
+                p_diff[ii,:].ravel()[src_idx] += s_mod_diff[ii,it]
+           
+            seis_diff[:,it,:] = p_diff[:,igz,igx]
+
+            p0_diff,p1_diff,p_diff = p1_diff,p_diff,p0_diff
+
+        seis_diff_vector = cp.reshape(seis_diff, (N,-1))
+        seis_diff_vector_combined.append(seis_diff_vector)
+
+        #if i_source==0:
+        #    kgs.dill_save(kgs.temp_dir + 'diff', (p_diff_list[0],p_diff_list[1],p_diff_list[-1],x,xx,xxx))            
+
+    seis_diff_vector = cp.concatenate(seis_diff_vector_combined,axis=1)
+    assert seis_diff_vector.shape == (N,349650)
+    return seis_diff_vector
+                
+
             
+    
