@@ -203,6 +203,8 @@ c2 = (4.0 / 3.0)
 c3 = (-1.0 / 12.0)
 
 src_idx_list = []
+isx_list = []
+isz_list = []
 for i_source in range(5):
     coord = {}
     source_x = [0, 17, 34, 52, 69][i_source]
@@ -213,6 +215,8 @@ for i_source in range(5):
     isx, isz, igx, igz = adjust_sr(coord, dx, nbc)
     src_idx = np.int32(isz*310 + isx)
     src_idx_list.append(src_idx)
+    isx_list.append(isx)
+    isz_list.append(isz)
 
 ng = len(coord['gx'])
 
@@ -220,7 +224,7 @@ damp = AbcCoef2D(310,310, nbc, dx)
 nx,nz = 310,310
 rcv_idx = nx*igz+igx
 
-def prep_run(velocity):
+def prep_run(velocity, i_source):
 
     v = cp.pad(velocity.data, ((nbc, nbc), (nbc, nbc)), mode='edge')
     abc = velocity.min_vel*damp
@@ -230,13 +234,13 @@ def prep_run(velocity):
     temp1 = 2 + 2 * c1 * alpha - kappa
     temp2 = 1 - kappa
 
-    bdt = (cp.asnumpy(v[isz, isx])*dt)**2
+    bdt = (cp.asnumpy(v[isz_list[i_source], isx_list[i_source]])*dt)**2
     s_mod = bdt*s
 
     return temp1,temp2,alpha,s_mod
 
 
-def prep_run_diff(velocity,velocity_diff, min_vel_diff):
+def prep_run_diff(velocity,velocity_diff, min_vel_diff, i_source):
     # velocity_diff: Nx70x70
     # min_vel_diff: N
     
@@ -249,7 +253,7 @@ def prep_run_diff(velocity,velocity_diff, min_vel_diff):
     temp1_diff = 2 * c1 * alpha_diff - kappa_diff
     temp2_diff = - kappa_diff
 
-    bdt_diff = cp.asnumpy(v[None,isz, isx]*v_diff[:,isz,isx]) * (2*dt**2)
+    bdt_diff = cp.asnumpy(v[None,isz_list[i_source], isx_list[i_source]]*v_diff[:,isz_list[i_source], isx_list[i_source]]) * (2*dt**2)
     s_mod_diff = bdt_diff[:,None]*s[None,:]
 
     return temp1_diff,temp2_diff,alpha_diff,s_mod_diff
@@ -261,9 +265,9 @@ def prep_run_diff(velocity,velocity_diff, min_vel_diff):
 def vel_to_seis(velocity,seismogram,return_p_complete_list=False):
     velocity.check_constraints()
     seismogram.check_constraints()
-    seis_combined = []
-    temp1,temp2,alpha,s_mod=prep_run(velocity)
-    
+    seis_combined = []    
+
+    temp1,temp2,alpha,s_mod=prep_run(velocity,0)
     temp1_flat= temp1.ravel()
     temp2_flat= temp2.ravel()
     alpha_flat= alpha.ravel()
@@ -276,7 +280,9 @@ def vel_to_seis(velocity,seismogram,return_p_complete_list=False):
 
     p_complete_list = []
     for i_source in range(5):        
+        
         src_idx = src_idx_list[i_source]
+        _,_,_,s_mod=prep_run(velocity,i_source)
 
         p_complete = cp.zeros((nt+2,temp1.shape[0],temp1.shape[1]), dtype=kgs.base_type_gpu)
         p_complete_flat = p_complete.ravel()
@@ -337,9 +343,9 @@ def vel_to_seis_diff(velocity, vel_diff_vector):
     assert(vel_diff_vector.shape == (N,4901))
 
     seis_diff_vector_combined = []
-    temp1,temp2,alpha,s_mod=prep_run(velocity)
-    temp1_diff,temp2_diff,alpha_diff,s_mod_diff=prep_run_diff(velocity, cp.reshape(vel_diff_vector[:,:-1], (N,70,70)), vel_diff_vector[:,-1])
-    s_mod_diff = cp.array(s_mod_diff)
+    temp1,temp2,alpha,s_mod=prep_run(velocity,0)
+    temp1_diff,temp2_diff,alpha_diff,s_mod_diff=prep_run_diff(velocity, cp.reshape(vel_diff_vector[:,:-1], (N,70,70)), vel_diff_vector[:,-1], 0)
+    
 
     temp1_flat= temp1.ravel()
     temp2_flat= temp2.ravel()
@@ -358,6 +364,9 @@ def vel_to_seis_diff(velocity, vel_diff_vector):
     for i_source in range(5):        
         #p_complete = cp.array(p_complete_list[i_source])
         src_idx = src_idx_list[i_source]
+        _,_,_,s_mod=prep_run(velocity,i_source)
+        _,_,_,s_mod_diff=prep_run_diff(velocity, cp.reshape(vel_diff_vector[:,:-1], (N,70,70)), vel_diff_vector[:,-1], i_source)
+        s_mod_diff = cp.array(s_mod_diff)
 
         p0_diff = cp.zeros_like(alpha_diff)
         p1_diff = cp.zeros_like(p0_diff)
