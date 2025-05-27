@@ -53,6 +53,7 @@ match env:
         data_dir = 'f:/seismic/data/'
         temp_dir = 'f:/seismic/temp/'             
         code_dir = 'f:/seismic/code/core/' 
+        brendan_model_dir = 'F:/seismic/models/brendan/'
 os.makedirs(temp_dir, exist_ok=True)
 
 # How many workers is optimal for parallel pool?
@@ -230,10 +231,10 @@ class Seismogram(BaseClass):
     def _check_constraints(self):
         if not self.data is None:
             assert(self.data.dtype == base_type_gpu)
-            assert(self.data.shape == (5,999,70))
+            assert(self.data.shape == (5,999,70) or self.data.shape == (5,1000,70))
 
-    def load_to_memory(self):
-        self.data = cp.array( np.load(self.filename, mmap_mode='r')[self.ind,:,:999,:], dtype = base_type_gpu )
+    def load_to_memory(self, load_last_row=False):
+        self.data = cp.array( np.load(self.filename, mmap_mode='r')[self.ind,:,:999+load_last_row,:], dtype = base_type_gpu )
 
     def to_vector(self):
         vec = self.data.flatten()[:,None]
@@ -258,9 +259,9 @@ class Velocity(BaseClass):
     def _check_constraints(self):
         if not self.data is None:
             assert(self.data.shape == (70,70))
-            assert(self.data.dtype == base_type_gpu)
+            #assert(self.data.dtype == base_type_gpu)
             assert(self.min_vel.shape == ())
-            assert(self.min_vel.dtype == base_type_gpu)
+            #assert(self.min_vel.dtype == base_type_gpu)
 
     def load_to_memory(self):
         self.data = cp.array( np.load(self.filename, mmap_mode='r')[self.ind,0,:,:], dtype = base_type_gpu )
@@ -288,23 +289,28 @@ class Data(BaseClass):
 
     seismogram: Seismogram = field(init=True, default=Seismogram() )
     velocity: Velocity = field(init=True, default=None )    
+    velocity_guess: Velocity = field(init=True, default=None )    
 
     def _check_constraints(self):
         self.seismogram.check_constraints()
         if not self.velocity is None:
             self.velocity.check_constraints()
+        if not self.velocity_guess is None:
+            self.velocity_guess.check_constraints()
 
     def load_to_memory(self):
         self.seismogram.load_to_memory()
-        self.velocity.load_to_memory()
+        if not self.velocity is None:
+            self.velocity.load_to_memory()
         self.check_constraints()
 
     def unload(self):
         self.seismogram.unload()
-        self.velocity.unload()
+        if not self.velocity is None:
+            self.velocity.unload()
         self.check_constraints()
 
-def load_all_train_data():
+def load_all_train_data(validation_only = False):
     dirs = glob.glob(data_dir + '/train_samples/*')
     base_data = Data()
     base_data.is_train = True
@@ -314,7 +320,11 @@ def load_all_train_data():
         family_ind = max(d.rfind('/'), d.rfind('\\'))
         base_data.family = d[family_ind+1:]
         files = glob.glob(d + '/seis*.npy')
+        files.sort()
+        if validation_only:
+            files = files[0:1]
         for f in files:
+            print(f)
             ind1 = f.rfind('seis')
             ind2 = f.rfind('.')
             descriptor = f[ind1+4:ind2]
@@ -328,8 +338,11 @@ def load_all_train_data():
 
         if os.path.isdir(d+'/data/'):            
             for ii in range(len(glob.glob(d+'/data/*.npy'))):
+                if validation_only and not ii==0:
+                    continue
                 base_data.seismogram.filename = d+'/data/data'+str(ii+1)+'.npy'
                 base_data.velocity.filename = d+'/model/model'+str(ii+1)+'.npy'
+                print(base_data.seismogram.filename)
                 for ind in range(np.load(base_data.seismogram.filename, mmap_mode='r').shape[0]):
                     data_list.append(copy.deepcopy(base_data))
                     data_list[-1].seismogram.ind = ind
@@ -338,211 +351,117 @@ def load_all_train_data():
 
     return data_list
 
-# def load_one_measurement(name, is_train, include_train_labels):
-#     result = DataKaggle()
-#     result.name = name
-#     result.is_train = is_train
-#     if include_train_labels:
-#         assert is_train
-#         this_labels = copy.deepcopy(all_train_labels[all_train_labels['tomo_id']==name]).reset_index()
-#         result.labels = this_labels[['z', 'y', 'x']]
-#         if result.labels['z'][0]==-1:
-#             assert result.labels['y'][0]==-1
-#             assert result.labels['x'][0]==-1
-#             assert len(result.labels)==1
-#             result.labels = result.labels[0:0]
-#         result.voxel_spacing = this_labels[0:1][['Voxel spacing']].to_numpy()[0,0]
-#         result.data_shape = (this_labels[0:1][['Array shape (axis 0)']].to_numpy()[0,0], this_labels[0:1][['Array shape (axis 1)']].to_numpy()[0,0], this_labels[0:1][['Array shape (axis 2)']].to_numpy()[0,0])
-#         result.negative_labels = negative_labels[negative_labels['name']==name].reset_index()
-#     result.check_constraints()    
-#     return result
-
-# def load_one_measurement_extra(name, include_train_labels):
-#     result = DataExtra()
-#     result.name = name
-#     result.is_train = True        
-#     if include_train_labels:
-#         data_pickle = dill_load(data_dir + '/extra/' + name + '/info.pickle')
-#         result.voxel_spacing = data_pickle['voxel_spacing']
-#         result.labels = data_pickle['labels']
-#         result.data_shape = data_pickle['orig_size']
-#     result.check_constraints()    
-#     return result
-
-# def load_all_train_data():    
-#     #if env=='vast':
-#     #    directories = glob.glob(h5py_cache_dir + '*.h5')
-#     #else:
-#     directories = glob.glob(data_dir + 'train/tomo*')
-#     directories.sort()
-#     result = []
-#     for d in directories:
-#         name = d[max(d.rfind('\\'), d.rfind('/'))+1:]
-#         # if env=='vast':
-#         #     name = name[:-3]
-#         if not name in['tomo_2b3cdf', 'tomo_62eea8', 'tomo_c84b8e', 'tomo_e6f7f7']: # mislabeled
-#             result.append(load_one_measurement(name, True, True))
-#     return result
-
-# def load_all_test_data():
-#     directories = glob.glob(data_dir + 'test/tomo*')
-#     directories.sort()
-#     result = []
-#     for d in directories:
-#         name = d[max(d.rfind('\\'), d.rfind('/'))+1:]
-#         result.append(load_one_measurement(name, False, False))
-#     return result
-
-# def load_all_extra_data():
-#     files = glob.glob(data_dir + 'extra/*')
-#     files.sort()
-#     result = []
-#     for f in files:
-#         name = f[max(f.rfind('\\'), f.rfind('/'))+1:]
-#         result.append(load_one_measurement_extra(name, True))
-#     return result
     
-# '''
-# General model definition
-# '''
-# # Function is used below, I ran into issues with multiprocessing if it was not a top-level function
-# model_parallel = None
-# def infer_internal_single_parallel(data):    
-#     try:
-#         global model_parallel
-#         if model_parallel is None:
-#             model_parallel= dill_load(temp_dir+'parallel.pickle')
-#         return_data = model_parallel._infer_single(data)
-#         return_data.unload()
-#         return return_data
-#     except Exception as err:
-#         import traceback
-#         print(traceback.format_exc())     
-#         raise
+'''
+General model definition
+'''
+# Function is used below, I ran into issues with multiprocessing if it was not a top-level function
+model_parallel = None
+def infer_internal_single_parallel(data):    
+    try:
+        global model_parallel
+        if model_parallel is None:
+            model_parallel= dill_load(temp_dir+'parallel.pickle')
+        data.seismogram.load_to_memory()
+        return_data = model_parallel._infer_single(data)
+        return_data.seismogram.unload()
+        return return_data
+    except Exception as err:
+        import traceback
+        print(traceback.format_exc())     
+        raise
 
-# def train_parallel(model, train_data, validation_data):
-#     old_run_in_parallel = model.run_in_parallel
-#     model.run_in_parallel = False
-#     model.train(train_data, validation_data)
-#     model.run_in_parallel = old_run_in_parallel
-#     return model
 
-# @dataclass
-# class DataSelector(BaseClass):
-#     datasets: list = field(init=False, default_factory = lambda:['tom'])#['tom', 'ycw', 'aba', 'mba'])
-#     include_multi_motor: bool = field(init=False, default=True)
+@dataclass
+class Model(BaseClass):
+    # Loads one or more cryoET measuerements
+    state: int = field(init=False, default=0) # 0: untrained, 1: trained    
+    run_in_parallel: bool = field(init=False, default=True) 
+    seed: object = field(init=True, default=None)  
 
-#     def select(self,data):
-#         if not self.include_multi_motor:
-#             data_out = []
-#             for d in data:
-#                 if len(d.labels)<=1:
-#                     data_out.append(d)
-#             data = data_out
+    def _check_constraints(self):
+        assert(self.state>=0 and self.state<=1)
 
-#         data_out = []
-#         for d in data:
-#             if d.name[:3] in self.datasets:
-#                 data_out.append(d)
-#         data = data_out
-#         return data
+    def train(self, train_data, validation_data):
+        if self.state>1:
+            return
+        if self.seed is None:
+            self.seed = np.random.default_rng(seed=None).integers(0,1e6).item()
+        train_data = copy.deepcopy(train_data)
+        validation_data = copy.deepcopy(validation_data)
+        for d in train_data:
+            d.unload()
+        for d in validation_data:
+            d.unload()
+        self._train(train_data, validation_data)
+        for d in train_data:
+            d.unload()
+        for d in validation_data:
+            d.unload()
+        self.state = 1
+        self.check_constraints()        
 
-# @dataclass
-# class Model(BaseClass):
-#     # Loads one or more cryoET measuerements
-#     state: int = field(init=False, default=0) # 0: untrained, 1: trained
-#     quiet: bool = field(init=False, default=True)
-#     run_in_parallel: bool = field(init=False, default=True) 
-#     seed: object = field(init=True, default=None)
-
-#     train_data_selector: object = field(init=True, default_factory = DataSelector)
-#     preprocessor: object = field(init=True, default = None)
-#     ratio_of_motors_allowed: float = field(init=True, default=0.45)
-
-#     def __post_init__(self):
-#         super().__post_init__()
-#         import flg_preprocess
-#         self.preprocessor = flg_preprocess.Preprocessor2()        
-
-#     def _check_constraints(self):
-#         assert(self.state>=0 and self.state<=1)
-
-#     def train_subprocess(self, train_data, validation_data):
-#         # Note: unlike below must capture result!
-#         claim_gpu('')
-#         with multiprocess.Pool(1) as p:
-#             trained_model = p.starmap(train_parallel, zip([self], [train_data], [validation_data]))[0]
-#         trained_model.check_constraints()
-#         return trained_model
-
-#     def train(self, train_data, validation_data):
-#         if self.state>1:
-#             return
-#         if self.seed is None:
-#             self.seed = np.random.default_rng(seed=None).integers(0,1e6).item()
-#         train_data = copy.deepcopy(train_data)
-#         validation_data = copy.deepcopy(validation_data)
-#         train_data = self.train_data_selector.select(train_data)
-#         validation_data = self.train_data_selector.select(validation_data)
-#         for d in train_data:
-#             d.unload()
-#         for d in validation_data:
-#             d.unload()
-#         self._train(train_data, validation_data)
-#         for d in train_data:
-#             d.unload()
-#         for d in validation_data:
-#             d.unload()
-#         self.state = 1
-#         self.check_constraints()        
-
-#     def _train_real(self, real_data, return_inferred_labels, test_data):
-#         pass
-
-#     def infer(self, test_data):
-#         assert self.state == 1
-#         test_data = copy.deepcopy(test_data)
-#         for t in test_data:
-#             t.labels  = pd.DataFrame()
-#             t.unload()
-#         test_data = self._infer(test_data)
-
-#         all_vals = []
-#         for d in test_data:
-#             if len(d.labels)==0:
-#                 all_vals.append(-np.inf)
-#             else:
-#                 all_vals.append(d.labels['value'][0])
-#         inds = np.argsort(all_vals)
-#         if self.ratio_of_motors_allowed<1:
-#             for ind in inds[:np.round(len(inds)*(1-self.ratio_of_motors_allowed)).astype(int)]:
-#                 test_data[ind].labels = test_data[ind].labels[0:0]
+    def _train(self,train_data, validation_data):
+        pass
+        # No training needed if not overridden
         
-#         for t in test_data:
-#             t.check_constraints()
-#         return test_data
+    def infer(self, test_data):
+        assert self.state == 1
+        test_data = copy.deepcopy(test_data)
+        for t in test_data:
+            t.unload()
+        test_data = self._infer(test_data)
 
-#     def _infer(self, test_data):
-#         # Subclass must implement this OR _infer_single
-#         if self.run_in_parallel:
-#             claim_gpu('')
-#             with multiprocess.Pool(recommend_n_workers()) as p:
-#                 dill_save(temp_dir+'parallel.pickle', self)
-#                 result = p.starmap(infer_internal_single_parallel, zip(test_data))            
-#         else:
-#             result = []
-#             for xx in test_data:     
-#                 t = time.time()
-#                 x = copy.deepcopy(xx)                   
-#                 x = self._infer_single(x)
-#                 x.unload()
-#                 result.append(x)
-#                 profile_print(x.name + ' total infer time: ' + str(time.time()-t))
-#         result = self._post_process(result)
-#         return result
+        for t in test_data:
+            t.check_constraints()
+        return test_data
 
-#     def _post_process(self, result):
-#         return result
+    def _infer(self, test_data):
+        # Subclass must implement this OR _infer_single
+        if self.run_in_parallel:
+            claim_gpu('')
+            with multiprocess.Pool(recommend_n_workers()) as p:
+                dill_save(temp_dir+'parallel.pickle', self)
+                result = p.starmap(infer_internal_single_parallel, zip(test_data))            
+        else:
+            result = []
+            for xx in test_data:     
+                x = copy.deepcopy(xx)  
+                x.seismogram.load_to_memory()
+                x = self._infer_single(x)
+                x.seismogram.unload()                
+                result.append(x)
+        result = self._post_process(result)
+        return result
+
+    def _post_process(self, result):
+        return result
+
+def score_metric(data, show_diagnostics=True):
+    res_all = []
+    res_per_family = dict()
+    for d in data:
+        d.velocity.load_to_memory()
+        this_error = cp.asnumpy(cp.mean(cp.abs(d.velocity.data - d.velocity_guess.data)))
+        d.velocity.unload()
+        res_all.append(this_error)
+        if not d.family in res_per_family:
+            res_per_family[d.family] = []
+        res_per_family[d.family].append(this_error)
+
+    score = np.mean(res_all)
+    score_per_family = dict()
+    score_per_family['family'] = res_per_family.keys()
+    score_per_family['score'] = [np.mean(x) for x in res_per_family.values()]
+    score_per_family = pd.DataFrame(score_per_family)
+
+    if show_diagnostics:
+        print(score_per_family)
+        print('Combined: ', score)
+
+    return score,score_per_family,res_all
+            
+        
 
 # def mark_tf_pn(data, reference_data, mark_false_negative=False):
 #     assert not mark_false_negative # todo
