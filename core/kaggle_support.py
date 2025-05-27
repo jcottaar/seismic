@@ -30,6 +30,7 @@ import skimage
 import shutil
 import subprocess
 import inspect
+import csv
 
 
 '''
@@ -42,7 +43,7 @@ elif os.path.isdir('/kaggle/working/'):
     env = 'kaggle'
 else:
     env = 'vast';
-assert env=='local'
+assert not env=='vast'
 
 profiling = False
 debugging_mode = 2
@@ -54,7 +55,15 @@ match env:
         temp_dir = 'f:/seismic/temp/'             
         code_dir = 'f:/seismic/code/core/' 
         cache_dir = 'f:/seismic/cache/'
+        output_dir = temp_dir
         brendan_model_dir = 'F:/seismic/models/brendan/'
+    case 'kaggle':
+        data_dir = '/kaggle/input/waveform-inversion/'
+        temp_dir = '/temp/'             
+        code_dir = '/kaggle/input/my-seismic-library/' 
+        cache_dir = '/kaggle/working/cache/'
+        output_dir = '/kaggle/working/'
+        brendan_model_dir = '/kaggle/input/simple-further-finetuned-bartley-open-models/'
 os.makedirs(temp_dir, exist_ok=True)
 os.makedirs(cache_dir, exist_ok=True)
 
@@ -236,7 +245,10 @@ class Seismogram(BaseClass):
             assert(self.data.shape == (5,999,70) or self.data.shape == (5,1000,70))
 
     def load_to_memory(self, load_last_row=False):
-        self.data = cp.array( np.load(self.filename, mmap_mode='r')[self.ind,:,:999+load_last_row,:], dtype = base_type_gpu )
+        if self.ind is None:
+            self.data = cp.array( np.load(self.filename, mmap_mode='r')[:,:999+load_last_row,:], dtype = base_type_gpu )
+        else:
+            self.data = cp.array( np.load(self.filename, mmap_mode='r')[self.ind,:,:999+load_last_row,:], dtype = base_type_gpu )
 
     def to_vector(self):
         vec = self.data.flatten()[:,None]
@@ -255,8 +267,8 @@ class Seismogram(BaseClass):
 class Velocity(BaseClass):
     filename: str = field(init=True, default=None)
     ind: int = field(init=True, default=None)    
-    data: cp.ndarray = field(init=True, default=None) # 70x70
-    min_vel: cp.ndarray = field(init=True, default=None) 
+    data: object = field(init=True, default=None) # 70x70, cp or np array
+    min_vel: object = field(init=True, default=None) 
 
     def _check_constraints(self):
         if not self.data is None:
@@ -289,7 +301,7 @@ class Data(BaseClass):
     is_train: bool = field(init=True, default=False)
     family: str = field(init=True, default='')
 
-    seismogram: Seismogram = field(init=True, default=Seismogram() )
+    seismogram: Seismogram = field(init=True, default_factory=lambda:Seismogram() )
     velocity: Velocity = field(init=True, default=None )    
     velocity_guess: Velocity = field(init=True, default=None )    
 
@@ -356,6 +368,21 @@ def load_all_train_data(validation_only = False):
 
     return data_list
 
+def load_all_test_data():
+    files = glob.glob(data_dir + '/test/*')
+    data_list = []
+    base_data = Data()
+    base_data.is_train = False
+    base_data.family = 'test'
+    base_data.seismogram.ind = None
+    for f in files:
+        data_list.append(copy.deepcopy(base_data))
+        data_list[-1].seismogram.filename = f        
+        data_list[-1].check_constraints()
+
+    return data_list
+        
+
     
 '''
 General model definition
@@ -381,7 +408,7 @@ def infer_internal_single_parallel(data):
 class Model(BaseClass):
     # Loads one or more cryoET measuerements
     state: int = field(init=False, default=0) # 0: untrained, 1: trained    
-    run_in_parallel: bool = field(init=False, default=True) 
+    run_in_parallel: bool = field(init=False, default=False) 
     seed: object = field(init=True, default=None)  
     cache_name: str = field(init=True, default=None)
 
@@ -413,7 +440,8 @@ class Model(BaseClass):
     def _train(self,train_data, validation_data):
         pass
         # No training needed if not overridden
-        
+
+    @profile_each_line
     def infer(self, test_data):
         assert self.state == 1
         test_data = copy.deepcopy(test_data)
@@ -452,6 +480,7 @@ class Model(BaseClass):
             test_data = test_data_inferred
 
         for t in test_data:
+            t.seismogram.unload()
             t.check_constraints()
 
         if self.write_cache:
@@ -465,6 +494,8 @@ class Model(BaseClass):
     def _infer(self, test_data):
         # Subclass must implement this OR _infer_single
         if self.run_in_parallel:
+            for t in test_data:
+                t.unload()
             claim_gpu('')
             with multiprocess.Pool(recommend_n_workers()) as p:
                 dill_save(temp_dir+'parallel.pickle', self)
@@ -473,9 +504,14 @@ class Model(BaseClass):
             result = []
             for xx in test_data:     
                 x = copy.deepcopy(xx)  
-                x.seismogram.load_to_memory()
+                if x.seismogram.data is None:
+                    x.seismogram.load_to_memory()
                 x = self._infer_single(x)
-                x.seismogram.unload()                
+                x.seismogram.unload()       
+                if self.write_cache: # will be done later too, but in case we error out later...
+                    this_cache_dir = cache_dir+self.cache_name+'/'
+                    os.makedirs(this_cache_dir,exist_ok=True)
+                    dill_save(this_cache_dir+x.cache_name(), x.velocity_guess)
                 result.append(x)
         result = self._post_process(result)
         return result
@@ -488,7 +524,7 @@ def score_metric(data, show_diagnostics=True):
     res_per_family = dict()
     for d in data:
         d.velocity.load_to_memory()
-        this_error = cp.asnumpy(cp.mean(cp.abs(d.velocity.data - d.velocity_guess.data)))
+        this_error = np.mean(np.abs(cp.asnumpy(d.velocity.data) - d.velocity_guess.data))
         d.velocity.unload()
         res_all.append(this_error)
         if not d.family in res_per_family:
@@ -506,8 +542,52 @@ def score_metric(data, show_diagnostics=True):
         print('Combined: ', score)
 
     return score,score_per_family,res_all
+
+def write_submission_file(data, output_file = output_dir+'submission.csv'):
+    res = dict()
+    res['oid_ypos'] = []
+    x_vals = np.arange(1,70,2)
+    x_vals_names = [ 'x_'+str(x) for x in x_vals ]
+    for xn in x_vals_names:
+        res[xn] = []
+    for ii,d in enumerate(data):
+        if ii%100==0:print(ii)
+        name = os.path.basename(d.seismogram.filename[:-4])+'_y_'
+        data = np.round(d.velocity_guess.data).astype(int)
+        for y in np.arange(70):
+            res['oid_ypos'].append(name+str(y))
+            for x,xn in zip(x_vals, x_vals_names):
+                res[xn].append(data[y,x])
+    print('x')
+    df = pd.DataFrame(res)
+    print('xx')
+    df.to_csv(output_file, index=False)
             
-        
+def write_submission_file(data, output_file = output_dir+'submission.csv'):
+    # precompute x‐positions and header
+    x_vals = np.arange(1, 70, 2)
+    x_names = [f"x_{x}" for x in x_vals]
+    header = ["oid_ypos"] + x_names
+
+    with open(output_file, "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(header)
+
+        for ii, d in enumerate(data):
+
+            # your string prefix
+            base = os.path.basename(d.seismogram.filename)[:-4]
+            name_prefix = f"{base}_y_"
+
+            # grab and round your 70×70 numpy array
+            arr = np.round(d.velocity_guess.data).astype(int)
+
+            # slice out only the 35 columns you care about
+            sub = arr[:, x_vals]  # shape = (70, 35)
+
+            # stream each of the 70 rows
+            for y in range(sub.shape[0]):
+                writer.writerow([f"{name_prefix}{y}"] + sub[y].tolist())
 
 # def mark_tf_pn(data, reference_data, mark_false_negative=False):
 #     assert not mark_false_negative # todo
