@@ -262,89 +262,96 @@ def prep_run_diff(velocity,velocity_diff, min_vel_diff, i_source):
 
 
 
-def vel_to_seis(velocity,seismogram,return_p_complete_list=False):
-    velocity.check_constraints()
-    seismogram.check_constraints()
-    seis_combined = []    
+# def vel_to_seis(velocity,seismogram,return_p_complete_list=False):
+#     velocity.check_constraints()
+#     seismogram.check_constraints()
+#     seis_combined = []    
 
-    temp1,temp2,alpha,s_mod=prep_run(velocity,0)
-    temp1_flat= temp1.ravel()
-    temp2_flat= temp2.ravel()
-    alpha_flat= alpha.ravel()
-    lapg_store = cp.zeros_like(temp1)
-    lapg_store_flat = lapg_store.ravel()
+#     temp1,temp2,alpha,s_mod=prep_run(velocity,0)
+#     temp1_flat= temp1.ravel()
+#     temp2_flat= temp2.ravel()
+#     alpha_flat= alpha.ravel()
+#     lapg_store = cp.zeros_like(temp1)
+#     lapg_store_flat = lapg_store.ravel()
 
-    tx, ty = 16, 16
-    bx = (nx + tx - 1) // tx
-    by = (nz + ty - 1) // ty  
+#     tx, ty = 16, 16
+#     bx = (nx + tx - 1) // tx
+#     by = (nz + ty - 1) // ty  
 
-    p_complete_list = []
-    for i_source in range(5):        
+#     p_complete_list = []
+#     for i_source in range(5):        
         
-        src_idx = src_idx_list[i_source]
-        _,_,_,s_mod=prep_run(velocity,i_source)
+#         src_idx = src_idx_list[i_source]
+#         _,_,_,s_mod=prep_run(velocity,i_source)
 
-        p_complete = cp.zeros((nt+2,temp1.shape[0],temp1.shape[1]), dtype=kgs.base_type_gpu)
-        p_complete_flat = p_complete.ravel()
+#         p_complete = cp.zeros((nt+2,temp1.shape[0],temp1.shape[1]), dtype=kgs.base_type_gpu)
+#         p_complete_flat = p_complete.ravel()
     
         
 
-        for it in range(0, nt):
-            if reference_mode:
-                p1 = p_complete[it+1,...]
-                p0 = p_complete[it,...]
-                p_complete[it+2,...] = (temp1 * p1 - temp2 * p0 +
-                     alpha * (
-                         cp.array(c2) * (cp.roll(p1, 1, axis=1) + cp.roll(p1, -1, axis=1) +
-                               cp.roll(p1, 1, axis=0) + cp.roll(p1, -1, axis=0)) +
-                         cp.array(c3) * (cp.roll(p1, 2, axis=1) + cp.roll(p1, -2, axis=1) +
-                               cp.roll(p1, 2, axis=0) + cp.roll(p1, -2, axis=0))
-                     ))
-                p_complete[it+2,...].ravel()[src_idx] += s_mod[it]
+#         for it in range(0, nt):
+#             if reference_mode:
+#                 p1 = p_complete[it+1,...]
+#                 p0 = p_complete[it,...]
+#                 p_complete[it+2,...] = (temp1 * p1 - temp2 * p0 +
+#                      alpha * (
+#                          cp.array(c2) * (cp.roll(p1, 1, axis=1) + cp.roll(p1, -1, axis=1) +
+#                                cp.roll(p1, 1, axis=0) + cp.roll(p1, -1, axis=0)) +
+#                          cp.array(c3) * (cp.roll(p1, 2, axis=1) + cp.roll(p1, -2, axis=1) +
+#                                cp.roll(p1, 2, axis=0) + cp.roll(p1, -2, axis=0))
+#                      ))
+#                 p_complete[it+2,...].ravel()[src_idx] += s_mod[it]
 
-            else:
+#             else:
 
-                update_p(
-                    (bx, by), (tx, ty),
-                    (
-                        temp1_flat, temp2_flat, alpha_flat,
-                        p_complete_flat,
-                        lapg_store_flat,
-                        (it)*(nx*nz),
-                        (it+1)*(nx*nz),
-                        (it+2)*(nx*nz),
-                        nx, nz,
-                        c2, c3,
-                        src_idx, s_mod[it]
-                    )
-                )
+#                 update_p(
+#                     (bx, by), (tx, ty),
+#                     (
+#                         temp1_flat, temp2_flat, alpha_flat,
+#                         p_complete_flat,
+#                         lapg_store_flat,
+#                         (it)*(nx*nz),
+#                         (it+1)*(nx*nz),
+#                         (it+2)*(nx*nz),
+#                         nx, nz,
+#                         c2, c3,
+#                         src_idx, s_mod[it]
+#                     )
+#                 )
 
-        seis = p_complete[2:,igz,igx]
-        seis_combined.append(seis)
+#         seis = p_complete[2:,igz,igx]
+#         seis_combined.append(seis)
 
-        #if i_source==0:
-        #    kgs.dill_save(kgs.temp_dir + 'nondiff', (p_complete[2,...],p_complete[3,...],p_complete[-1,...],x,xx,xxx))
+#         #if i_source==0:
+#         #    kgs.dill_save(kgs.temp_dir + 'nondiff', (p_complete[2,...],p_complete[3,...],p_complete[-1,...],x,xx,xxx))
 
-        if return_p_complete_list:
-            p_complete_list.append(cp.asnumpy(p_complete))
+#         if return_p_complete_list:
+#             p_complete_list.append(cp.asnumpy(p_complete))
 
-    seismogram = copy.deepcopy(seismogram)
-    seismogram.data = cp.stack(seis_combined)
-    seismogram.check_constraints()
+#     seismogram = copy.deepcopy(seismogram)
+#     seismogram.data = cp.stack(seis_combined)
+#     seismogram.check_constraints()
 
-    return seismogram, p_complete_list
+#     return seismogram, p_complete_list
 
 @kgs.profile_each_line
-def vel_to_seis_diff(velocity, vel_diff_vector):
+def vel_to_seis(velocity, seismogram, vel_diff_vector=cp.empty((0,4901))):
     # vel_diff_vector: Nx4901
     # outputs seis_diff_vector: Nx349650
-    velocity.check_constraints()                 
+    velocity.check_constraints()     
+    seismogram.check_constraints()
+    
+    seis_combined = []    
+
     N = vel_diff_vector.shape[0]
     assert(vel_diff_vector.shape == (N,4901))
+    do_gradient = N>0
 
     seis_diff_vector_combined = []
     temp1,temp2,alpha,s_mod=prep_run(velocity,0)
-    temp1_diff,temp2_diff,alpha_diff,s_mod_diff=prep_run_diff(velocity, cp.reshape(vel_diff_vector[:,:-1], (N,70,70)), vel_diff_vector[:,-1], 0)
+    if do_gradient:
+        temp1_diff,temp2_diff,alpha_diff,s_mod_diff=prep_run_diff(velocity, cp.reshape(vel_diff_vector[:,:-1], (N,70,70)), vel_diff_vector[:,-1], 0)
+        
     
 
     temp1_flat= temp1.ravel()
@@ -352,8 +359,9 @@ def vel_to_seis_diff(velocity, vel_diff_vector):
     alpha_flat= alpha.ravel()
     lapg_store = cp.zeros_like(temp1)
     lapg_store_flat = lapg_store.ravel()
-    lapg_store2 = cp.zeros( (N, temp1.shape[0], temp1.shape[1]), dtype=kgs.base_type_gpu )
-    lapg_store2_flat = lapg_store2.ravel()
+    if do_gradient:
+        lapg_store2 = cp.zeros( (N, temp1.shape[0], temp1.shape[1]), dtype=kgs.base_type_gpu )
+        lapg_store2_flat = lapg_store2.ravel()
 
     tx, ty = 16, 16
     bx = (nx + tx - 1) // tx
@@ -365,14 +373,15 @@ def vel_to_seis_diff(velocity, vel_diff_vector):
         #p_complete = cp.array(p_complete_list[i_source])
         src_idx = src_idx_list[i_source]
         _,_,_,s_mod=prep_run(velocity,i_source)
-        _,_,_,s_mod_diff=prep_run_diff(velocity, cp.reshape(vel_diff_vector[:,:-1], (N,70,70)), vel_diff_vector[:,-1], i_source)
-        s_mod_diff = cp.array(s_mod_diff)
+        if do_gradient:
+            _,_,_,s_mod_diff=prep_run_diff(velocity, cp.reshape(vel_diff_vector[:,:-1], (N,70,70)), vel_diff_vector[:,-1], i_source)
+            s_mod_diff = cp.array(s_mod_diff)
 
-        p0_diff = cp.zeros_like(alpha_diff)
-        p1_diff = cp.zeros_like(p0_diff)
-        p_diff = cp.zeros_like(p0_diff)
-
-        seis_diff = cp.zeros( (N,999,70) , dtype = kgs.base_type_gpu)
+            p0_diff = cp.zeros_like(alpha_diff)
+            p1_diff = cp.zeros_like(p0_diff)
+            p_diff = cp.zeros_like(p0_diff)
+    
+            seis_diff = cp.zeros( (N,999,70) , dtype = kgs.base_type_gpu)
 
         p_complete = cp.zeros((nt+2,temp1.shape[0],temp1.shape[1]), dtype=kgs.base_type_gpu)
         p_complete_flat = p_complete.ravel()
@@ -380,72 +389,90 @@ def vel_to_seis_diff(velocity, vel_diff_vector):
         seis_diff_list = []
         for it in range(0, nt):
 
-            update_p(
+            if reference_mode:
+                p1 = p_complete[it+1,...]
+                p0 = p_complete[it,...]
+                lapg_store = (cp.array(c2) * (cp.roll(p1, 1, axis=1) + cp.roll(p1, -1, axis=1) +
+                               cp.roll(p1, 1, axis=0) + cp.roll(p1, -1, axis=0)) +
+                         cp.array(c3) * (cp.roll(p1, 2, axis=1) + cp.roll(p1, -2, axis=1) +
+                               cp.roll(p1, 2, axis=0) + cp.roll(p1, -2, axis=0)))
+                p_complete[it+2,...] = (temp1 * p1 - temp2 * p0 +
+                     alpha * lapg_store)
+                p_complete[it+2,...].ravel()[src_idx] += s_mod[it]
+
+            else:
+
+                update_p(
+                        (bx, by), (tx, ty),
+                        (
+                            temp1_flat, temp2_flat, alpha_flat,
+                            p_complete_flat,
+                            lapg_store_flat,
+                            (it)*(nx*nz),
+                            (it+1)*(nx*nz),
+                            (it+2)*(nx*nz),
+                            nx, nz,
+                            c2, c3,
+                            src_idx, s_mod[it]
+                        )
+                    )
+
+            if do_gradient:
+                p1 = p_complete[it+1,...]
+                p0 = p_complete[it,...]
+    
+                #for ii in range(N):
+                compute_lapg_per_slice(
                     (bx, by), (tx, ty),
-                    (
-                        temp1_flat, temp2_flat, alpha_flat,
-                        p_complete_flat,
-                        lapg_store_flat,
-                        (it)*(nx*nz),
-                        (it+1)*(nx*nz),
-                        (it+2)*(nx*nz),
-                        nx, nz,
-                        c2, c3,
-                        src_idx, s_mod[it]
+                    (                        
+                        p1_diff.ravel(),
+                        lapg_store2_flat,
+                        nx, nz, N,
+                        c2, c3
                     )
                 )
-            
-            p1 = p_complete[it+1,...]
-            p0 = p_complete[it,...]
+                
+    
+                p_diff = (temp1_diff*p1 + temp1*p1_diff - temp2_diff*p0 - temp2*p0_diff + 
+                    alpha_diff * (
+                         lapg_store
+                         #cp.array(c2) * (cp.roll(p1, 1, axis=1) + cp.roll(p1, -1, axis=1) +
+                         #      cp.roll(p1, 1, axis=0) + cp.roll(p1, -1, axis=0)) +
+                         #cp.array(c3) * (cp.roll(p1, 2, axis=1) + cp.roll(p1, -2, axis=1) +
+                         #      cp.roll(p1, 2, axis=0) + cp.roll(p1, -2, axis=0))
+                     ) + 
+                    alpha * (
+                        lapg_store2
+                         #cp.array(c2) * (cp.roll(p1_diff, 1, axis=2) + cp.roll(p1_diff, -1, axis=2) +
+                         #      cp.roll(p1_diff, 1, axis=1) + cp.roll(p1_diff, -1, axis=1)) +
+                         #cp.array(c3) * (cp.roll(p1_diff, 2, axis=2) + cp.roll(p1_diff, -2, axis=2) +
+                         #      cp.roll(p1_diff, 2, axis=1) + cp.roll(p1_diff, -2, axis=1))
+                     ))     
+                #for ii in range(N):
+                #    p_diff[ii,:].ravel()[src_idx] += s_mod_diff[ii,it]
+                flat = p_diff.reshape(N, -1)
+                # add each scalar s_mod_diff[ii,it] to all the flat[:,src_idx] positions
+                flat[:, src_idx] += s_mod_diff[:, it]
+    
+                seis_diff[:,it,:] = p_diff[:,igz,igx]
+    
+                p0_diff,p1_diff,p_diff = p1_diff,p_diff,p0_diff
 
-            #for ii in range(N):
-            compute_lapg_per_slice(
-                (bx, by), (tx, ty),
-                (                        
-                    p1_diff.ravel(),
-                    lapg_store2_flat,
-                    nx, nz, N,
-                    c2, c3
-                )
-            )
-            
+        seis = p_complete[2:,igz,igx]
+        seis_combined.append(seis)
+        if do_gradient:
+            seis_diff_vector = cp.reshape(seis_diff, (N,-1))
+            seis_diff_vector_combined.append(seis_diff_vector)
 
-            p_diff = (temp1_diff*p1 + temp1*p1_diff - temp2_diff*p0 - temp2*p0_diff + 
-                alpha_diff * (
-                     lapg_store
-                     #cp.array(c2) * (cp.roll(p1, 1, axis=1) + cp.roll(p1, -1, axis=1) +
-                     #      cp.roll(p1, 1, axis=0) + cp.roll(p1, -1, axis=0)) +
-                     #cp.array(c3) * (cp.roll(p1, 2, axis=1) + cp.roll(p1, -2, axis=1) +
-                     #      cp.roll(p1, 2, axis=0) + cp.roll(p1, -2, axis=0))
-                 ) + 
-                alpha * (
-                    lapg_store2
-                     #cp.array(c2) * (cp.roll(p1_diff, 1, axis=2) + cp.roll(p1_diff, -1, axis=2) +
-                     #      cp.roll(p1_diff, 1, axis=1) + cp.roll(p1_diff, -1, axis=1)) +
-                     #cp.array(c3) * (cp.roll(p1_diff, 2, axis=2) + cp.roll(p1_diff, -2, axis=2) +
-                     #      cp.roll(p1_diff, 2, axis=1) + cp.roll(p1_diff, -2, axis=1))
-                 ))     
-            #for ii in range(N):
-            #    p_diff[ii,:].ravel()[src_idx] += s_mod_diff[ii,it]
-            flat = p_diff.reshape(N, -1)
-            # add each scalar s_mod_diff[ii,it] to all the flat[:,src_idx] positions
-            flat[:, src_idx] += s_mod_diff[:, it]
-
-            seis_diff[:,it,:] = p_diff[:,igz,igx]
-
-            p0_diff,p1_diff,p_diff = p1_diff,p_diff,p0_diff
-
-        #seis_diff = cp.stack(seis_diff_list)
-        #seis_diff = cp.transpose(seis_diff, axes=(1,0,2))
-        seis_diff_vector = cp.reshape(seis_diff, (N,-1))
-        seis_diff_vector_combined.append(seis_diff_vector)
-
-        #if i_source==0:
-        #    kgs.dill_save(kgs.temp_dir + 'diff', (p_diff_list[0],p_diff_list[1],p_diff_list[-1],x,xx,xxx))            
-
-    seis_diff_vector = cp.concatenate(seis_diff_vector_combined,axis=1)
+    if do_gradient:
+        seis_diff_vector = cp.concatenate(seis_diff_vector_combined,axis=1)
+    else:
+        seis_diff_vector = cp.empty((0,349650),dtype=kgs.base_type_gpu)
     assert seis_diff_vector.shape == (N,349650)
-    return seis_diff_vector
+    seismogram = copy.deepcopy(seismogram)
+    seismogram.data = cp.stack(seis_combined)
+    seismogram.check_constraints()
+    return seismogram,seis_diff_vector
                 
 
 # def vel_to_seis_J(velocity):

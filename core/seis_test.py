@@ -49,7 +49,7 @@ def test_stuff_on_one_case(d, expected_match, test_reference_mode=False):
     # Test vel_to_seis_diff
     N_test = 2
     offset_vecs = 1e-4*cp.array(np.random.default_rng(seed=0).normal(0,1,(N_test,len(d.velocity.to_vector()))), dtype=kgs.base_type_gpu)
-    base_result = seis_forward.vel_to_seis(d.velocity, d.seismogram)[0]
+    base_result, diff_result = seis_forward.vel_to_seis(d.velocity, d.seismogram, offset_vecs)
     #base_file = kgs.dill_load(kgs.temp_dir + 'nondiff')
     
     finite_difference = dict()
@@ -64,7 +64,7 @@ def test_stuff_on_one_case(d, expected_match, test_reference_mode=False):
         #    finite_difference_file[ii,jj] = offset_file[jj]-base_file[jj]
 
 
-    diff_result = seis_forward.vel_to_seis_diff(d.velocity, offset_vecs)
+    #diff_result = seis_forward.vel_to_seis_diff(d.velocity, offset_vecs)
     #diff_result_file = kgs.dill_load(kgs.temp_dir + 'diff')
     #for ii in range(N_test):
     #    for jj in range(len(offset_file)):
