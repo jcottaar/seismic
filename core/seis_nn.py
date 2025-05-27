@@ -37,6 +37,10 @@ def make_default_pretrained():
     model_out.model = model
     model_out.state = 1
     model_out.run_in_parallel = False
+
+    model_out.write_cache=True
+    model_out.read_cache=True
+    model_out.cache_name = 'brendan'
     return model_out
 
 class NeuralNetwork(kgs.Model):
@@ -57,6 +61,7 @@ class NeuralNetwork(kgs.Model):
         
         sub_list = np.array_split(np.arange(len(data)), len(data)//self.batch_size+1)
         for inds in tqdm(sub_list):
+            if len(inds)==0: continue
             x = torch.empty((len(inds),5,1000,70) , dtype=torch.float32, device=device)
             for i_sub, i in enumerate(inds):
                 data[i].seismogram.load_to_memory(load_last_row=True)

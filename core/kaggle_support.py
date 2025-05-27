@@ -53,8 +53,10 @@ match env:
         data_dir = 'f:/seismic/data/'
         temp_dir = 'f:/seismic/temp/'             
         code_dir = 'f:/seismic/code/core/' 
+        cache_dir = 'f:/seismic/cache/'
         brendan_model_dir = 'F:/seismic/models/brendan/'
 os.makedirs(temp_dir, exist_ok=True)
+os.makedirs(cache_dir, exist_ok=True)
 
 # How many workers is optimal for parallel pool?
 def recommend_n_workers():
@@ -310,6 +312,9 @@ class Data(BaseClass):
             self.velocity.unload()
         self.check_constraints()
 
+    def cache_name(self):
+        return os.path.basename(self.seismogram.filename[:-4]+'__'+self.family+'__'+str(self.seismogram.ind))
+
 def load_all_train_data(validation_only = False):
     dirs = glob.glob(data_dir + '/train_samples/*')
     base_data = Data()
@@ -324,7 +329,7 @@ def load_all_train_data(validation_only = False):
         if validation_only:
             files = files[0:1]
         for f in files:
-            print(f)
+            #print(f)
             ind1 = f.rfind('seis')
             ind2 = f.rfind('.')
             descriptor = f[ind1+4:ind2]
@@ -342,7 +347,7 @@ def load_all_train_data(validation_only = False):
                     continue
                 base_data.seismogram.filename = d+'/data/data'+str(ii+1)+'.npy'
                 base_data.velocity.filename = d+'/model/model'+str(ii+1)+'.npy'
-                print(base_data.seismogram.filename)
+                #print(base_data.seismogram.filename)
                 for ind in range(np.load(base_data.seismogram.filename, mmap_mode='r').shape[0]):
                     data_list.append(copy.deepcopy(base_data))
                     data_list[-1].seismogram.ind = ind
@@ -378,6 +383,10 @@ class Model(BaseClass):
     state: int = field(init=False, default=0) # 0: untrained, 1: trained    
     run_in_parallel: bool = field(init=False, default=True) 
     seed: object = field(init=True, default=None)  
+    cache_name: str = field(init=True, default=None)
+
+    write_cache: bool = field(init=True, default=False)
+    read_cache: bool = field(init=True, default=False)
 
     def _check_constraints(self):
         assert(self.state>=0 and self.state<=1)
@@ -408,12 +417,49 @@ class Model(BaseClass):
     def infer(self, test_data):
         assert self.state == 1
         test_data = copy.deepcopy(test_data)
+
+        if self.read_cache:
+            this_cache_dir = cache_dir+self.cache_name+'/'
+            files = set([os.path.basename(x) for x in glob.glob(this_cache_dir+'/*')])
+            cached = []
+            test_data_cached = []
+            tt = copy.deepcopy(test_data)
+            test_data = []
+            for d in tt:
+                if d.cache_name() in files:
+                    cached.append(True)
+                    test_data_cached.append(d)
+                    test_data_cached[-1].velocity_guess = dill_load(this_cache_dir+d.cache_name())
+                else:
+                    cached.append(False)
+                    test_data.append(d)
+       
         for t in test_data:
             t.unload()
-        test_data = self._infer(test_data)
+        if len(test_data)>0:
+            test_data_inferred = self._infer(test_data)
+        else:
+            test_data_inferred = []
+
+        if self.read_cache:
+            b_it = iter(test_data_cached)
+            c_it = iter(test_data_inferred)        
+            test_data = [
+                next(b_it) if c else next(c_it)
+                for c in cached
+            ] 
+        else:
+            test_data = test_data_inferred
 
         for t in test_data:
             t.check_constraints()
+
+        if self.write_cache:
+            this_cache_dir = cache_dir+self.cache_name+'/'
+            os.makedirs(this_cache_dir,exist_ok=True)
+            for d in test_data:
+                dill_save(this_cache_dir+d.cache_name(), d.velocity_guess)
+                
         return test_data
 
     def _infer(self, test_data):
