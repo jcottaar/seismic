@@ -236,10 +236,11 @@ class Seismogram(BaseClass):
         self.data = cp.array( np.load(self.filename, mmap_mode='r')[self.ind,:,:999,:], dtype = base_type_gpu )
 
     def to_vector(self):
-        vec = self.data.flatten()
+        vec = self.data.flatten()[:,None]
         return vec
 
     def from_vector(self, vec):
+        assert vec.shape == (5*999*70,1)
         self.data = cp.reshape(vec, (5,999,70))
         if debugging_mode >= 2:
             assert cp.all(self.to_vector()==vec)
@@ -266,12 +267,13 @@ class Velocity(BaseClass):
         self.min_vel = cp.min(self.data)
 
     def to_vector(self):
-        vec = cp.concatenate((self.data.flatten(), cp.reshape(self.min_vel, (1))))
+        vec = cp.concatenate((self.data.flatten(), cp.reshape(self.min_vel, (1))))[:,None]
         return vec
 
     def from_vector(self, vec):
-        self.data = cp.reshape(vec[:-1], (70,70))
-        self.min_vel = vec[-1]
+        assert vec.shape == (4901,1)
+        self.data = cp.reshape(vec[:-1,0], (70,70))
+        self.min_vel = vec[-1,0]
         if debugging_mode >= 2:
             assert cp.all(self.to_vector()==vec)
         

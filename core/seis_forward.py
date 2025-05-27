@@ -257,85 +257,9 @@ def prep_run_diff(velocity,velocity_diff, min_vel_diff, i_source):
     s_mod_diff = bdt_diff[:,None]*s[None,:]
 
     return temp1_diff,temp2_diff,alpha_diff,s_mod_diff
-    # temp1_diff,temp2_diff,alpha_diff: Nx310x310
-    # s_mod_diff: Nx1000(ish)
-
-
-
-# def vel_to_seis(velocity,seismogram,return_p_complete_list=False):
-#     velocity.check_constraints()
-#     seismogram.check_constraints()
-#     seis_combined = []    
-
-#     temp1,temp2,alpha,s_mod=prep_run(velocity,0)
-#     temp1_flat= temp1.ravel()
-#     temp2_flat= temp2.ravel()
-#     alpha_flat= alpha.ravel()
-#     lapg_store = cp.zeros_like(temp1)
-#     lapg_store_flat = lapg_store.ravel()
-
-#     tx, ty = 16, 16
-#     bx = (nx + tx - 1) // tx
-#     by = (nz + ty - 1) // ty  
-
-#     p_complete_list = []
-#     for i_source in range(5):        
-        
-#         src_idx = src_idx_list[i_source]
-#         _,_,_,s_mod=prep_run(velocity,i_source)
-
-#         p_complete = cp.zeros((nt+2,temp1.shape[0],temp1.shape[1]), dtype=kgs.base_type_gpu)
-#         p_complete_flat = p_complete.ravel()
-    
-        
-
-#         for it in range(0, nt):
-#             if reference_mode:
-#                 p1 = p_complete[it+1,...]
-#                 p0 = p_complete[it,...]
-#                 p_complete[it+2,...] = (temp1 * p1 - temp2 * p0 +
-#                      alpha * (
-#                          cp.array(c2) * (cp.roll(p1, 1, axis=1) + cp.roll(p1, -1, axis=1) +
-#                                cp.roll(p1, 1, axis=0) + cp.roll(p1, -1, axis=0)) +
-#                          cp.array(c3) * (cp.roll(p1, 2, axis=1) + cp.roll(p1, -2, axis=1) +
-#                                cp.roll(p1, 2, axis=0) + cp.roll(p1, -2, axis=0))
-#                      ))
-#                 p_complete[it+2,...].ravel()[src_idx] += s_mod[it]
-
-#             else:
-
-#                 update_p(
-#                     (bx, by), (tx, ty),
-#                     (
-#                         temp1_flat, temp2_flat, alpha_flat,
-#                         p_complete_flat,
-#                         lapg_store_flat,
-#                         (it)*(nx*nz),
-#                         (it+1)*(nx*nz),
-#                         (it+2)*(nx*nz),
-#                         nx, nz,
-#                         c2, c3,
-#                         src_idx, s_mod[it]
-#                     )
-#                 )
-
-#         seis = p_complete[2:,igz,igx]
-#         seis_combined.append(seis)
-
-#         #if i_source==0:
-#         #    kgs.dill_save(kgs.temp_dir + 'nondiff', (p_complete[2,...],p_complete[3,...],p_complete[-1,...],x,xx,xxx))
-
-#         if return_p_complete_list:
-#             p_complete_list.append(cp.asnumpy(p_complete))
-
-#     seismogram = copy.deepcopy(seismogram)
-#     seismogram.data = cp.stack(seis_combined)
-#     seismogram.check_constraints()
-
-#     return seismogram, p_complete_list
-
+ 
 @kgs.profile_each_line
-def vel_to_seis(velocity, seismogram, vel_diff_vector=cp.empty((0,4901))):
+def vel_to_seis(velocity, seismogram, vel_diff_vector=cp.empty((4901,0))):
     # vel_diff_vector: Nx4901
     # outputs seis_diff_vector: Nx349650
     velocity.check_constraints()     
@@ -343,6 +267,7 @@ def vel_to_seis(velocity, seismogram, vel_diff_vector=cp.empty((0,4901))):
     
     seis_combined = []    
 
+    vel_diff_vector = cp.transpose(vel_diff_vector)
     N = vel_diff_vector.shape[0]
     assert(vel_diff_vector.shape == (N,4901))
     do_gradient = N>0
@@ -472,7 +397,8 @@ def vel_to_seis(velocity, seismogram, vel_diff_vector=cp.empty((0,4901))):
     seismogram = copy.deepcopy(seismogram)
     seismogram.data = cp.stack(seis_combined)
     seismogram.check_constraints()
-    return seismogram,seis_diff_vector
+    jacobian = cp.transpose(seis_diff_vector)
+    return seismogram,jacobian
                 
 
 # def vel_to_seis_J(velocity):

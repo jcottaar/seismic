@@ -36,7 +36,7 @@ def test_stuff_on_one_case(d, expected_match, test_reference_mode=False):
     finite_difference = dict()
     for ii in range(N_test):
         vel_offset = copy.deepcopy(d.velocity)    
-        vel_offset.from_vector(vel_offset.to_vector() + offset_vecs[ii,:])      
+        vel_offset.from_vector(vel_offset.to_vector() + offset_vecs[ii:ii+1,:].T)      
         offset_result = seis_forward.prep_run(vel_offset,3)
         for jj in range(len(offset_result)):
             finite_difference[ii,jj] = offset_result[jj]-base_result[jj]
@@ -48,7 +48,7 @@ def test_stuff_on_one_case(d, expected_match, test_reference_mode=False):
 
     # Test vel_to_seis_diff
     N_test = 2
-    offset_vecs = 1e-4*cp.array(np.random.default_rng(seed=0).normal(0,1,(N_test,len(d.velocity.to_vector()))), dtype=kgs.base_type_gpu)
+    offset_vecs = 1e-4*cp.array(np.random.default_rng(seed=0).normal(0,1,(len(d.velocity.to_vector()),N_test)), dtype=kgs.base_type_gpu)
     base_result, diff_result = seis_forward.vel_to_seis(d.velocity, d.seismogram, offset_vecs)
     #base_file = kgs.dill_load(kgs.temp_dir + 'nondiff')
     
@@ -56,7 +56,7 @@ def test_stuff_on_one_case(d, expected_match, test_reference_mode=False):
     #finite_difference_file = dict()
     for ii in range(N_test):
         vel_offset = copy.deepcopy(d.velocity)    
-        vel_offset.from_vector(vel_offset.to_vector() + offset_vecs[ii,:])      
+        vel_offset.from_vector(vel_offset.to_vector() + offset_vecs[:,ii:ii+1])      
         offset_result = seis_forward.vel_to_seis(vel_offset, d.seismogram)[0]
         #offset_file = kgs.dill_load(kgs.temp_dir + 'nondiff')
         finite_difference[ii] = (offset_result.data - base_result.data).flatten()
@@ -70,7 +70,7 @@ def test_stuff_on_one_case(d, expected_match, test_reference_mode=False):
     #    for jj in range(len(offset_file)):
     #        print (kgs.rms(diff_result_file[jj][ii,...] - finite_difference_file[ii,jj]),kgs.rms(finite_difference_file[ii,jj]))
     for ii in range(N_test):
-        assert (kgs.rms(diff_result[ii,:] - finite_difference[ii])/kgs.rms(finite_difference[ii])) < 1e-5
+        assert (kgs.rms(diff_result[:,ii] - finite_difference[ii])/kgs.rms(finite_difference[ii])) < 1e-5
 
             
     
