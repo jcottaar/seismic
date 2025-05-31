@@ -62,7 +62,7 @@ class RowTotalVariation(Prior):
 
         diff = cp.diff(x[:70],axis=0)
         cost_per_item = cp.sqrt(diff**2+self.epsilon**2)
-        cost = cp.sum(cost_per_item)
+        cost = cp.mean(cost_per_item)
 
         if compute_gradient:
             sign = diff / cost_per_item     
@@ -70,6 +70,7 @@ class RowTotalVariation(Prior):
             gradient[0] = -sign[0]
             gradient[1:69] = sign[:-1] - sign[1:]            # sign[:-1] = sign[0..67], sign[1:] = sign[1..68]
             gradient[69] = sign[-1]
+            gradient = gradient/69
         else:
             gradient = None
 

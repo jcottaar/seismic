@@ -6,6 +6,7 @@ import cupy as cp
 import kaggle_support as kgs
 import seis_forward
 import seis_prior
+import seis_invert
 import copy
 import importlib
 import matplotlib.pyplot as plt
@@ -97,23 +98,46 @@ def test_prior(prior):
 
     assert kgs.rms(cp.sum(gradient*offset_vec) - (cost_offset-cost))/kgs.rms(cost_offset-cost) < 1e-6
 
+def test_cost(data, prior):
+
+    data.load_to_memory()
+
+    prior.check_constraints()
+    data.check_constraints()
+    prior.λ = 1e-9
+
+    base_vec = cp.array(np.random.default_rng(seed=0).normal(0,1,(prior.N,1)), dtype=kgs.base_type_gpu)
+    offset_vec = 1e-4*cp.array(np.random.default_rng(seed=0).normal(0,1,(prior.N,1)), dtype=kgs.base_type_gpu)
+    target = data.seismogram.to_vector()
+    basis_functions = prior.basis_functions()
+
+    cost_offset = seis_invert.cost_and_gradient(base_vec+offset_vec, target, prior, basis_functions, compute_gradient=False)
+    cost,gradient = seis_invert.cost_and_gradient(base_vec, target, prior, basis_functions, compute_gradient=True)
+
+    assert (kgs.rms(cp.sum(gradient*offset_vec) - (cost_offset-cost))/kgs.rms(cost_offset-cost))<1e-4
+    print (kgs.rms(cp.sum(gradient*offset_vec) - (cost_offset-cost)), kgs.rms(cost_offset-cost))
+
 def run_all_tests(test_reference_mode = False):
     importlib.reload(kgs)
     importlib.reload(seis_forward)
     importlib.reload(seis_prior)
+    importlib.reload(seis_invert)
     kgs.debugging_mode = 3
     kgs.profiling=False
     seis_forward.reference_mode = False
     data = kgs.load_all_train_data()
     
-    #test_stuff_on_one_case(data[2059], 1e-4, test_reference_mode=test_reference_mode)
-    #test_stuff_on_one_case(data[-1001], 1e-4, test_reference_mode=test_reference_mode)
+    test_stuff_on_one_case(data[2059], 1e-4, test_reference_mode=test_reference_mode)
+    test_stuff_on_one_case(data[-1001], 1e-4, test_reference_mode=test_reference_mode)
 
     test_prior(seis_prior.RowTotalVariation())
+
+    test_cost(data[2059], seis_prior.RowTotalVariation())
     
     importlib.reload(kgs)
     importlib.reload(seis_forward)
     importlib.reload(seis_prior)
+    importlib.reload(seis_invert)
 
     print('All tests passed!')
     
