@@ -19,9 +19,8 @@ class Prior(kgs.BaseClass):
         assert res.shape == (4901, self.N)
         return res
 
-    def compute_cost_and_gradient(self, x, compute_gradient = None):
+    def compute_cost_and_gradient(self, x, compute_gradient = False):
         assert x.shape == (self.N,1)
-        assert compute_gradient is None or compute_gradient.shape == (self.N,1)
 
         cost, gradient = self._compute_cost_and_gradient(x, compute_gradient)        
         
@@ -29,13 +28,14 @@ class Prior(kgs.BaseClass):
         assert type(cost)==cp.ndarray
         assert cost.dtype == kgs.base_type_gpu
         assert cost.shape == ()
-        if not compute_gradient is None:
+        if compute_gradient:
             gradient = self.λ * gradient
             assert type(gradient)==cp.ndarray
             assert gradient.dtype == kgs.base_type_gpu
-            assert gradient.shape == ()
-
-        return cost,gradient
+            assert gradient.shape == (self.N,1)
+            return cost, gradient
+        else:
+            return cost
 
 @dataclass
 class RowTotalVariation(Prior):
@@ -64,10 +64,12 @@ class RowTotalVariation(Prior):
         cost_per_item = cp.sqrt(diff**2+self.epsilon**2)
         cost = cp.sum(cost_per_item)
 
-        if not compute_gradient is None:
-            diff_grad = cp.diff(compute_gradient[:70],axis=0)
-            cost_per_item_grad = diff_grad*diff/cost_per_item
-            gradient = cp.sum(cost_per_item_grad)
+        if compute_gradient:
+            sign = diff / cost_per_item     
+            gradient = cp.zeros_like(x)        
+            gradient[0] = -sign[0]
+            gradient[1:69] = sign[:-1] - sign[1:]            # sign[:-1] = sign[0..67], sign[1:] = sign[1..68]
+            gradient[69] = sign[-1]
         else:
             gradient = None
 

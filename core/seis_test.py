@@ -92,10 +92,10 @@ def test_prior(prior):
     base_vec = cp.array(np.random.default_rng(seed=0).normal(0,1,(prior.N,1)), dtype=kgs.base_type_gpu)
     offset_vec = 1e-6*cp.array(np.random.default_rng(seed=0).normal(0,1,(prior.N,1)), dtype=kgs.base_type_gpu)
 
-    cost,gradient = prior.compute_cost_and_gradient(base_vec, offset_vec)
-    cost_offset,_ = prior.compute_cost_and_gradient(base_vec+offset_vec)
+    cost,gradient = prior.compute_cost_and_gradient(base_vec, compute_gradient=True)
+    cost_offset = prior.compute_cost_and_gradient(base_vec+offset_vec)
 
-    assert kgs.rms(gradient - (cost_offset-cost))/kgs.rms(cost_offset-cost) < 1e-6
+    assert kgs.rms(cp.sum(gradient*offset_vec) - (cost_offset-cost))/kgs.rms(cost_offset-cost) < 1e-6
 
 def run_all_tests(test_reference_mode = False):
     importlib.reload(kgs)
