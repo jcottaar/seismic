@@ -1,7 +1,7 @@
 import numpy as np
 import cupy as cp
 import kaggle_support as kgs
-import seis_forward
+import seis_forward2
 import scipy
 import copy
 from dataclasses import dataclass, field, fields
@@ -15,18 +15,15 @@ def cost_and_gradient(x, target, prior, basis_functions, compute_gradient=False)
         cost_prior = prior.compute_cost_and_gradient(x, compute_gradient=False)
 
     # Residual part
-    vel = kgs.Velocity()
-    seis = kgs.Seismogram()
-    vel.from_vector(basis_functions@x)
+    vec = basis_functions@x
     if compute_gradient:
-        vel, JB = seis_forward.vel_to_seis(vel, seis, vel_diff_vector=basis_functions)
+        s, _, s_adjoint = seis_forward2.vel_to_seis(vec, vec_adjoint=target, adjoint_on_residual=True)
     else:
-        vel, _ = seis_forward.vel_to_seis(vel, seis)
-    v = vel.to_vector()
+        s, _, _ = seis_forward2.vel_to_seis(vec)
 
-    cost_residual = cp.mean( (v-target)**2 )
+    cost_residual = cp.mean( (s-target)**2 )
     if compute_gradient:
-        gradient_residual = 2*(JB.T)@(v-target)/len(v)    
+        gradient_residual = (2/len(s))*(basis_functions.T@s_adjoint)
 
     # Combine
     if compute_gradient:
@@ -41,23 +38,30 @@ def seis_to_vel(seismogram, velocity_guess, prior, scaling=1e10, maxiter=20):
     x_guess = cp.asnumpy(cp.linalg.solve(basis_functions.T@basis_functions, basis_functions.T@(velocity_guess.to_vector())))
     target = seismogram.to_vector()
 
-    def cost_func(x):
-        #print(x-x_guess[:,0])
-        cost = cp.asnumpy(cost_and_gradient(cp.array(x)[:,None],target,prior,basis_functions)).item()
+    # def cost_func(x):
+    #     #print(x-x_guess[:,0])
+    #     cost = cp.asnumpy(cost_and_gradient(cp.array(x)[:,None],target,prior,basis_functions)).item()
+    #     print(cost, kgs.rms(basis_functions@cp.array(x[:,None])-true_vel.to_vector()))
+    #     cost = cost*scaling
+    #     return cost
+
+    # def gradient_func(x):
+    #     xx = cost_and_gradient(cp.array(x)[:,None],target,prior,basis_functions, compute_gradient=True)[1]
+    #     xx = xx*scaling
+    #     return cp.asnumpy(xx[:,0])
+
+    def cost_and_gradient_func(x):
+        cost,gradient = cost_and_gradient(cp.array(x)[:,None], target, prior, basis_functions, compute_gradient=True)
         print(cost, kgs.rms(basis_functions@cp.array(x[:,None])-true_vel.to_vector()))
         cost = cost*scaling
-        return cost
-
-    def gradient_func(x):
-        xx = cost_and_gradient(cp.array(x)[:,None],target,prior,basis_functions, compute_gradient=True)[1]
-        xx = xx*scaling
-        return cp.asnumpy(xx[:,0])
+        gradient = gradient*scaling
+        return cp.asnumpy(cost), cp.asnumpy(gradient[:,0])
 
     #cost_func = lambda x: 
     #gradient_func = lambda x: 
 
     #res = scipy.optimize.minimize(cost_func, x_guess[:,0], method = 'L-BFGS-B', jac = gradient_func, options={'maxiter':maxiter})
-    res = scipy.optimize.minimize(cost_func, x_guess[:,0], method = 'BFGS', jac = gradient_func, options={'maxiter':maxiter})
+    res = scipy.optimize.minimize(cost_and_gradient_func, x_guess[:,0], method = 'BFGS', jac = True, options={'maxiter':maxiter})
     print(res)
 
     result = copy.deepcopy(velocity_guess)
