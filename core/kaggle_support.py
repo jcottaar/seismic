@@ -305,6 +305,8 @@ class Data(BaseClass):
     velocity: Velocity = field(init=True, default=None )    
     velocity_guess: Velocity = field(init=True, default=None )    
 
+    diagnostics: dict = field(init=True, default_factory=dict)
+
     def _check_constraints(self):
         self.seismogram.check_constraints()
         if not self.velocity is None:
