@@ -33,7 +33,7 @@ def test_stuff_on_one_case(d, expected_match, test_reference_mode=False):
     res1 = cp.sum((result-offset_vec2)*result_diff)
     res2 = cp.sum(result_adjoint*offset_vec1)
     print('adjoint', cp.abs(res1-res2), res1)
-    assert cp.abs(res1-res2)/res1<1e-10
+    assert cp.abs(res1-res2)/cp.abs(res1)<1e-10
     #base_file = kgs.dill_load(kgs.temp_dir + 'nondiff')
 
     result_offset = seis_forward2.vel_to_seis(d.velocity.to_vector()+offset_vec1, None,None)[0]
@@ -91,9 +91,9 @@ def run_all_tests(test_reference_mode = False):
     data = kgs.load_all_train_data()
     
     test_stuff_on_one_case(data[2059], 1e-4, test_reference_mode=test_reference_mode)
-    #test_stuff_on_one_case(data[-1001], 1e-4, test_reference_mode=test_reference_mode)
+    test_stuff_on_one_case(data[-1001], 1e-4, test_reference_mode=test_reference_mode)
 
-    #test_prior(seis_prior.RowTotalVariation())
+    test_prior(seis_prior.RowTotalVariation())
 
     test_cost(data[2059], seis_prior.RowTotalVariation())
     

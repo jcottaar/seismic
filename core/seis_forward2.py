@@ -36,12 +36,16 @@ def vel_to_seis(vec, vec_diff=None, vec_adjoint=None, adjoint_on_residual=False)
         alpha_adjoint = cp.zeros_like(alpha)
         temp1_adjoint = cp.zeros_like(alpha)
         temp2_adjoint = cp.zeros_like(alpha)
-        v_adjoint = cp.zeros_like(v)       
+        v_adjoint = cp.zeros_like(v)  
+        seis_combined_adjoint = cp.reshape(vec_adjoint, (5,999,70))
 
     tx, ty = 16, 16
     bx = (nx + tx - 1) // tx
     by = (nz + ty - 1) // ty  
 
+
+    # LOOP
+    
     for i_source in range(N_source_to_do):     
         src_idx = src_idx_list[i_source]
         bdt = (cp.asnumpy(v[isz_list[i_source], isx_list[i_source]])*dt)**2
@@ -70,34 +74,11 @@ def vel_to_seis(vec, vec_diff=None, vec_adjoint=None, adjoint_on_residual=False)
                         )
                     )
 
-            # p1 = p_complete[it+1,...]
-            # p0 = p_complete[it,...]
-            # lapg_store[it,...] = (cp.array(c2) * (cp.roll(p1, 1, axis=1) + cp.roll(p1, -1, axis=1) +
-            #                cp.roll(p1, 1, axis=0) + cp.roll(p1, -1, axis=0)) +
-            #          cp.array(c3) * (cp.roll(p1, 2, axis=1) + cp.roll(p1, -2, axis=1) +
-            #                cp.roll(p1, 2, axis=0) + cp.roll(p1, -2, axis=0)))
-            # p_complete[it+2,...] = (temp1 * p1 - temp2 * p0 +
-            #      alpha * lapg_store[it,...])
-            # p_complete[it+2,...].ravel()[src_idx] += s_mod[it]   
-
         seis_combined[i_source,...] = p_complete[2:,igz,igx]
-        p_complete_list.append((cp.asnumpy(p_complete), cp.asnumpy(lapg_store)))
 
-    assert seis_combined.shape == (5,999,70)
-    result =  seis_combined.flatten()[:,None]
-
-    # DIFF
-
-    if do_diff:
-
-        for i_source in range(N_source_to_do):
-            src_idx = src_idx_list[i_source]
+        if do_diff:
             bdt_diff = 2*((cp.asnumpy(v[isz_list[i_source], isx_list[i_source]]*v_diff[isz_list[i_source], isx_list[i_source]])))* dt**2
             s_mod_diff = bdt_diff*s
-            
-            (p_complete, lapg_store) = p_complete_list[i_source]
-            p_complete = cp.array(p_complete)
-            lapg_store = cp.array(lapg_store)
             p_complete_diff = cp.zeros((nt+2,temp1.shape[0],temp1.shape[1]), dtype=kgs.base_type_gpu)
     
             for it in range(0, nt):
@@ -114,55 +95,71 @@ def vel_to_seis(vec, vec_diff=None, vec_adjoint=None, adjoint_on_residual=False)
                 p_complete_diff[it+2,...].ravel()[src_idx] += s_mod_diff[it]   
     
             seis_combined_diff[i_source,...] = p_complete_diff[2:,igz,igx]
-            #del p_complete_diff
-    
-        assert seis_combined_diff.shape == (5,999,70)
-        result_diff =  seis_combined_diff.flatten()[:,None]
-    else:
-        result_diff = None
-
-        
-
-    # ADJOINT
-
-    if do_adjoint:
-        if adjoint_on_residual:
-            vec_adjoint = result-vec_adjoint      
-        seis_combined_adjoint = cp.reshape(vec_adjoint, (5,999,70))
-        for i_source in range(N_source_to_do):
-            src_idx = src_idx_list[i_source]
+            del p_complete_diff
             
-            (p_complete, lapg_store) = p_complete_list[i_source]
-            p_complete = cp.array(p_complete)
-            lapg_store = cp.array(lapg_store)
-    
+        if do_adjoint:     
             p_complete_adjoint =  cp.zeros((nt+2,temp1.shape[0],temp1.shape[1]), dtype=kgs.base_type_gpu)
-            p_complete_adjoint[2:,igz,igx] = seis_combined_adjoint[i_source,...]
+            if adjoint_on_residual:
+                p_complete_adjoint[2:,igz,igx] = seis_combined[i_source,...]-seis_combined_adjoint[i_source,...]
+            else:
+                p_complete_adjoint[2:,igz,igx] = seis_combined_adjoint[i_source,...]
     
             s_mod_adjoint = cp.zeros_like(s_mod)
+            s_mod_adjoint_flat = s_mod_adjoint.ravel(); p_complete_adjoint_flat = p_complete_adjoint.ravel();
+            temp1_adjoint_flat = temp1_adjoint.ravel();temp2_adjoint_flat = temp2_adjoint.ravel();
+            alpha_adjoint_flat = alpha_adjoint.ravel();
             for it in np.arange(nt-1,-1,-1):
-                s_mod_adjoint[it] = p_complete_adjoint[it+2,...].ravel()[src_idx]
-                p_complete_adjoint[it+1,...] += temp1 * p_complete_adjoint[it+2,...]
-                temp1_adjoint+=p_complete[it+1,...] * p_complete_adjoint[it+2,...]
-                p_complete_adjoint[it,...] -= temp2 * p_complete_adjoint[it+2,...]
-                temp2_adjoint-=p_complete[it,...] * p_complete_adjoint[it+2,...]
-                alpha_adjoint+=lapg_store[it,...] * p_complete_adjoint[it+2,...]
-                lapg_store_adjoint = alpha*p_complete_adjoint[it+2,...]
-                p1_adjoint = (cp.array(c2) * (cp.roll(lapg_store_adjoint, -1, axis=1) + cp.roll(lapg_store_adjoint, 1, axis=1) +
-                                  cp.roll(lapg_store_adjoint, -1, axis=0) + cp.roll(lapg_store_adjoint, 1, axis=0)) +
-                  cp.array(c3) * (cp.roll(lapg_store_adjoint, -2, axis=1) + cp.roll(lapg_store_adjoint, 2, axis=1) +
-                                  cp.roll(lapg_store_adjoint, -2, axis=0) + cp.roll(lapg_store_adjoint, 2, axis=0)))
-                p_complete_adjoint[it+1,...]+= p1_adjoint
+
+                
+                
+                update_p_adjoint(
+                        (bx, by), (tx, ty),
+                        (
+                            temp1_flat, temp2_flat, alpha_flat,
+                            p_complete_flat,
+                            lapg_store_flat,
+                            s_mod_adjoint_flat, p_complete_adjoint_flat, temp1_adjoint_flat, temp2_adjoint_flat, alpha_adjoint_flat,
+                            (it)*(nx*nz),
+                            (it+1)*(nx*nz),
+                            (it+2)*(nx*nz),
+                            nx, nz, it,
+                            c2, c3,
+                            src_idx
+                        )
+                    )
+                
+
+                # s_mod_adjoint[it] = p_complete_adjoint[it+2,...].ravel()[src_idx]
+                # p_complete_adjoint[it+1,...] += temp1 * p_complete_adjoint[it+2,...]
+                # temp1_adjoint+=p_complete[it+1,...] * p_complete_adjoint[it+2,...]
+                # p_complete_adjoint[it,...] -= temp2 * p_complete_adjoint[it+2,...]
+                # temp2_adjoint-=p_complete[it,...] * p_complete_adjoint[it+2,...]
+                # alpha_adjoint+=lapg_store[it,...] * p_complete_adjoint[it+2,...]
+                # lapg_store_adjoint = alpha*p_complete_adjoint[it+2,...]
+                # p1_adjoint = (cp.array(c2) * (cp.roll(lapg_store_adjoint, -1, axis=1) + cp.roll(lapg_store_adjoint, 1, axis=1) +
+                #                   cp.roll(lapg_store_adjoint, -1, axis=0) + cp.roll(lapg_store_adjoint, 1, axis=0)) +
+                #   cp.array(c3) * (cp.roll(lapg_store_adjoint, -2, axis=1) + cp.roll(lapg_store_adjoint, 2, axis=1) +
+                #                   cp.roll(lapg_store_adjoint, -2, axis=0) + cp.roll(lapg_store_adjoint, 2, axis=0)))
+                # p_complete_adjoint[it+1,...]+= p1_adjoint
                 
     
             bdt_adjoint = cp.sum(s_mod_adjoint*cp.array(s))
             v_adjoint[isz_list[i_source], isx_list[i_source]] += 2*dt**2 * v[isz_list[i_source], isx_list[i_source]] * bdt_adjoint
-            #del p_complete_adjoint
+            del p_complete_adjoint
             
+
+    # FINALIZE
+    assert seis_combined.shape == (5,999,70)
+    result =  seis_combined.flatten()[:,None]
+    if do_diff:
+        assert seis_combined_diff.shape == (5,999,70)
+        result_diff =  seis_combined_diff.flatten()[:,None]
+    else:
+        result_diff = None
+    if do_adjoint:
         result_adjoint = prep_run_adjoint(v_adjoint,temp1_adjoint,temp2_adjoint,alpha_adjoint,v)
     else:
         result_adjoint = None
-
 
     return result, result_diff, result_adjoint
 
@@ -319,6 +316,7 @@ def vel_to_seis_ref(vec, vec_diff=None, vec_adjoint=None, adjoint_on_residual=Fa
     
             s_mod_adjoint = cp.zeros_like(s_mod)
             for it in np.arange(nt-1,-1,-1):
+                
                 s_mod_adjoint[it] = p_complete_adjoint[it+2,...].ravel()[src_idx]
                 p_complete_adjoint[it+1,...] += temp1 * p_complete_adjoint[it+2,...]
                 temp1_adjoint+=p_complete[it+1,...] * p_complete_adjoint[it+2,...]
@@ -410,6 +408,75 @@ module = cp.RawModule(code=kernel_code)
 update_p = module.get_function('update_p')
 
 
+# CUDA kernel for adjoint calculation
+kernel_code = r'''
+extern "C" __global__
+void update_p_adjoint(
+              const double* __restrict__ temp1,
+              const double* __restrict__ temp2,
+              const double* __restrict__ alpha,
+              const double* __restrict__ p_complete,
+              const double* __restrict__ lapg_store,
+              double*  __restrict__ s_mod_adjoint,
+              double*  __restrict__ p_complete_adjoint,
+              double*  __restrict__ temp1_adjoint,
+              double*  __restrict__ temp2_adjoint,
+              double*  __restrict__ alpha_adjoint,
+              const int    ind_offset1,
+              const int    ind_offset2,
+              const int    ind_offset3,
+              const int    nx,
+              const int    ny,
+              const int    it,
+              const double  c2,
+              const double  c3,
+              const int src_idx) {
+    int ix = blockDim.x * blockIdx.x + threadIdx.x;
+    int iy = blockDim.y * blockIdx.y + threadIdx.y;
+    if (ix >= nx || iy >= ny) return;
+    int idx = iy * nx + ix;
+    int idx1 = ind_offset1 + idx;
+    int idx2 = ind_offset2 + idx;
+    int idx3 = ind_offset3 + idx;
+
+    // Manual wrap at ±1, ±2
+    int ix_p1 = ix+1; if (ix_p1==nx)  ix_p1=0;
+    int ix_m1 = ix-1; if (ix_m1<0)    ix_m1=nx-1;
+    int ix_p2 = ix+2; if (ix_p2>=nx)  ix_p2-=nx;
+    int ix_m2 = ix-2; if (ix_m2<0)     ix_m2+=nx;
+    int iy_p1 = iy+1; if (iy_p1==ny)  iy_p1=0;
+    int iy_m1 = iy-1; if (iy_m1<0)    iy_m1=ny-1;
+    int iy_p2 = iy+2; if (iy_p2>=ny)  iy_p2-=ny;
+    int iy_m2 = iy-2; if (iy_m2<0)     iy_m2+=ny;
+
+    if (idx == src_idx) {
+        s_mod_adjoint[it] = p_complete_adjoint[idx3];
+    }
+
+    p_complete_adjoint[idx2] += temp1[idx]*p_complete_adjoint[idx3];
+    temp1_adjoint[idx] += p_complete[idx2]*p_complete_adjoint[idx3];
+    p_complete_adjoint[idx1] -= temp2[idx]*p_complete_adjoint[idx3];
+    temp2_adjoint[idx] -= p_complete[idx1]*p_complete_adjoint[idx3];
+    alpha_adjoint[idx] += lapg_store[idx1] * p_complete_adjoint[idx3];
+    //double lapg_store_adjoint[idx] = alpha[idx] * p_complete_adjoint[idx3];
+
+    // Collect neighbors (±1)
+    double t1 = alpha[iy  * nx + ix_p1] * p_complete_adjoint[ind_offset3 + iy  * nx + ix_p1] +
+                alpha[iy  * nx + ix_m1] * p_complete_adjoint[ind_offset3 + iy  * nx + ix_m1] +
+                alpha[iy_p1  * nx + ix] * p_complete_adjoint[ind_offset3 + iy_p1  * nx + ix] +
+                alpha[iy_m1  * nx + ix] * p_complete_adjoint[ind_offset3 + iy_m1  * nx + ix];
+    // Collect neighbors (±2)
+    double t2 = alpha[iy  * nx + ix_p2] * p_complete_adjoint[ind_offset3 + iy  * nx + ix_p2] +
+                alpha[iy  * nx + ix_m2] * p_complete_adjoint[ind_offset3 + iy  * nx + ix_m2] +
+                alpha[iy_p2  * nx + ix] * p_complete_adjoint[ind_offset3 + iy_p2  * nx + ix] +
+                alpha[iy_m2  * nx + ix] * p_complete_adjoint[ind_offset3 + iy_m2  * nx + ix];
+
+    p_complete_adjoint[idx2]+=c2*t1+c3*t2;
+      
+}
+'''
+module = cp.RawModule(code=kernel_code)
+update_p_adjoint = module.get_function('update_p_adjoint')
 
 
 
