@@ -39,12 +39,13 @@ class Prior(kgs.BaseClass):
 
 @dataclass
 class RowTotalVariation(Prior):
-    epsilon: float = field(init=True, default=1.)
+    epsilon: float = field(init=True, default=0.1)
 
     def __post_init__(self):
         # Mark the object as frozen after initialization        
         super().__post_init__()
         self.N = 71
+        self.λ = 1e-8
     
     def _basis_functions(self):
         basis_vectors = []

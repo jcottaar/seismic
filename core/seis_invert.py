@@ -2,6 +2,7 @@ import numpy as np
 import cupy as cp
 import kaggle_support as kgs
 import seis_forward2
+import seis_prior
 import scipy
 import copy
 from dataclasses import dataclass, field, fields
@@ -32,7 +33,7 @@ def cost_and_gradient(x, target, prior, basis_functions, compute_gradient=False)
         return cost_prior + cost_residual
 
 true_vel = None
-def seis_to_vel(seismogram, velocity_guess, prior, scaling=1e10, maxiter=20):
+def seis_to_vel(seismogram, velocity_guess, prior, scaling=1e10, maxiter=2000):
     
     basis_functions = prior.basis_functions()
     x_guess = cp.asnumpy(cp.linalg.solve(basis_functions.T@basis_functions, basis_functions.T@(velocity_guess.to_vector())))
@@ -52,7 +53,8 @@ def seis_to_vel(seismogram, velocity_guess, prior, scaling=1e10, maxiter=20):
 
     def cost_and_gradient_func(x):
         cost,gradient = cost_and_gradient(cp.array(x)[:,None], target, prior, basis_functions, compute_gradient=True)
-        print(cost, kgs.rms(basis_functions@cp.array(x[:,None])-true_vel.to_vector()))
+        if not true_vel is None:
+            print(cost, kgs.rms(basis_functions@cp.array(x[:,None])-true_vel.to_vector()))
         cost = cost*scaling
         gradient = gradient*scaling
         return cp.asnumpy(cost), cp.asnumpy(gradient[:,0])
@@ -68,3 +70,18 @@ def seis_to_vel(seismogram, velocity_guess, prior, scaling=1e10, maxiter=20):
     result.from_vector( basis_functions@cp.array(res.x)[:,None] )
 
     return result
+
+@dataclass
+class InversionModel(kgs.Model):
+    prior: seis_prior.Prior = field(init=True, default_factory = seis_prior.RowTotalVariation)
+    maxiter = 2000
+    scaling = 1e15
+
+    def _infer_single(self,data):
+        data.velocity_guess.data = cp.array(data.velocity_guess.data)
+        data.velocity_guess.min_vel = cp.array(data.velocity_guess.min_vel)
+        data.velocity_guess = seis_to_vel(data.seismogram, data.velocity_guess, self.prior, scaling=self.scaling, maxiter=self.maxiter)
+        data.velocity_guess.data = cp.asnumpy(data.velocity_guess.data)
+        data.velocity_guess.min_vel = cp.asnumpy(data.velocity_guess.min_vel)
+
+        return data

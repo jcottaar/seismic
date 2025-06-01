@@ -51,7 +51,7 @@ class NeuralNetwork(kgs.Model):
 
     batch_size = 300
 
-    def _train(train_data, validation_data):
+    def _train(self, train_data, validation_data):
         raise Exception('Not supported')
 
     def _infer(self,data):

@@ -419,7 +419,7 @@ class Model(BaseClass):
         assert(self.state>=0 and self.state<=1)
 
     def train(self, train_data, validation_data):
-        if self.state>1:
+        if self.state>=1:
             return
         if self.seed is None:
             self.seed = np.random.default_rng(seed=None).integers(0,1e6).item()
@@ -518,6 +518,19 @@ class Model(BaseClass):
 
     def _post_process(self, result):
         return result
+
+@dataclass
+class ChainedModel(Model):
+    models: list = field(init=True, default_factory=list)
+
+    def _train(self,train_data, validation_data):
+        for m in self.models:
+            m.train(train_data, validation_data)
+
+    def _infer(self, data):
+        for m in self.models:
+            data = m.infer(data)
+        return data
 
 def score_metric(data, show_diagnostics=True):
     res_all = []
