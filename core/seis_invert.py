@@ -34,27 +34,31 @@ def cost_and_gradient(x, target, prior, basis_functions, compute_gradient=False)
     else:
         return cost_prior + cost_residual
 
-def seis_to_vel(seismogram, velocity_guess, prior):
+true_vel = None
+def seis_to_vel(seismogram, velocity_guess, prior, scaling=1e10, maxiter=20):
     
     basis_functions = prior.basis_functions()
     x_guess = cp.asnumpy(cp.linalg.solve(basis_functions.T@basis_functions, basis_functions.T@(velocity_guess.to_vector())))
     target = seismogram.to_vector()
 
     def cost_func(x):
-        print(x-x_guess[:,0])
+        #print(x-x_guess[:,0])
         cost = cp.asnumpy(cost_and_gradient(cp.array(x)[:,None],target,prior,basis_functions)).item()
-        print(cost)
+        print(cost, kgs.rms(basis_functions@cp.array(x[:,None])-true_vel.to_vector()))
+        cost = cost*scaling
         return cost
 
     def gradient_func(x):
-        print('gradient requested')
         xx = cost_and_gradient(cp.array(x)[:,None],target,prior,basis_functions, compute_gradient=True)[1]
-        return cp.asnumpy(xx)
+        xx = xx*scaling
+        return cp.asnumpy(xx[:,0])
 
     #cost_func = lambda x: 
     #gradient_func = lambda x: 
 
-    res = scipy.optimize.minimize(cost_func, x_guess[:,0], method = 'L-BFGS-B', jac = gradient_func, options={'maxiter':10})
+    #res = scipy.optimize.minimize(cost_func, x_guess[:,0], method = 'L-BFGS-B', jac = gradient_func, options={'maxiter':maxiter})
+    res = scipy.optimize.minimize(cost_func, x_guess[:,0], method = 'BFGS', jac = gradient_func, options={'maxiter':maxiter})
+    print(res)
 
     result = copy.deepcopy(velocity_guess)
     result.from_vector( basis_functions@cp.array(res.x)[:,None] )

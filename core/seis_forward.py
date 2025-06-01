@@ -399,6 +399,55 @@ def vel_to_seis(velocity, seismogram, vel_diff_vector=cp.empty((4901,0))):
     seismogram.check_constraints()
     jacobian = cp.transpose(seis_diff_vector)
     return seismogram,jacobian
+
+
+def vel_to_seis_ref(vec):
+    assert vec.shape == (4901,1)
+    #assert adjoint_vec.shape == (5*999*70,1)
+    v=cp.reshape(vec[:-1,0], (70,70))
+    min_vel = vec[-1,0]
+    
+    v = cp.pad(v, ((nbc, nbc), (nbc, nbc)), mode='edge')
+    abc = min_vel*damp
+    v2 = v**2
+
+    alpha = v2* (dt / dx)**2
+    kappa = abc * dt
+    temp1 = 2 + 2 * c1 * alpha - kappa
+    temp2 = 1 - kappa
+
+    seis_combined = cp.empty((5,999,70),dtype=kgs.base_type_gpu)
+
+    for i_source in range(5):        
+        src_idx = src_idx_list[i_source]
+        bdt = (cp.asnumpy(v[isz_list[i_source], isx_list[i_source]])*dt)**2
+        s_mod = bdt*s
+
+        p_complete = cp.zeros((nt+2,temp1.shape[0],temp1.shape[1]), dtype=kgs.base_type_gpu)
+        
+        for it in range(0, nt):
+
+            p1 = p_complete[it+1,...]
+            p0 = p_complete[it,...]
+            lapg_store = (cp.array(c2) * (cp.roll(p1, 1, axis=1) + cp.roll(p1, -1, axis=1) +
+                           cp.roll(p1, 1, axis=0) + cp.roll(p1, -1, axis=0)) +
+                     cp.array(c3) * (cp.roll(p1, 2, axis=1) + cp.roll(p1, -2, axis=1) +
+                           cp.roll(p1, 2, axis=0) + cp.roll(p1, -2, axis=0)))
+            p_complete[it+2,...] = (temp1 * p1 - temp2 * p0 +
+                 alpha * lapg_store)
+            p_complete[it+2,...].ravel()[src_idx] += s_mod[it]   
+
+        seis_combined[i_source,...] = p_complete[2:,igz,igx]
+
+    seis_combined = cp.stack(seis_combined)
+    assert seis_combined.shape == (5,999,70)
+    results =  seis_combined.flatten()[:,None]
+
+    # Now create code to generate results_adjoint, such that:
+    # results_adjoint == J.T * adjoint_vec
+    # With J the Jacobian of vel_to_seis_ref at location vec
+
+    return results
                 
 
 # def vel_to_seis_J(velocity):
