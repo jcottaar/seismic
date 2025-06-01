@@ -54,7 +54,7 @@ def seis_to_vel(seismogram, velocity_guess, prior, scaling=1e10, maxiter=2000, m
     def cost_and_gradient_func(x):
         cost,gradient = cost_and_gradient(cp.array(x)[:,None], target, prior, basis_functions, compute_gradient=True)
         if not true_vel is None:
-            print(cost, kgs.rms(basis_functions@cp.array(x[:,None])-true_vel.to_vector()))
+            #print(cost, kgs.rms(basis_functions@cp.array(x[:,None])-true_vel.to_vector()))
             diagnostics['vel_error_per_fev'].append(cp.asnumpy(kgs.rms(basis_functions@cp.array(x[:,None])-true_vel.to_vector())))
         cost = cost*scaling
         gradient = gradient*scaling
@@ -96,6 +96,7 @@ class InversionModel(kgs.Model):
         data.velocity_guess.min_vel = cp.asnumpy(data.velocity_guess.min_vel)
 
         data.diagnostics['seis_to_vel'] = diagnostics
-        data.velocity.unload()
+        if data.is_train:
+            data.velocity.unload()
 
         return data

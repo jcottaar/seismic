@@ -416,6 +416,7 @@ class Model(BaseClass):
 
     write_cache: bool = field(init=True, default=False)
     read_cache: bool = field(init=True, default=False)
+    only_use_cached: bool = field(init=True, default=False)
 
     def _check_constraints(self):
         assert(self.state>=0 and self.state<=1)
@@ -466,10 +467,13 @@ class Model(BaseClass):
        
         for t in test_data:
             t.unload()
-        if len(test_data)>0:
-            test_data_inferred = self._infer(test_data)
+        if self.only_use_cached:
+            test_data_inferred = test_data
         else:
-            test_data_inferred = []
+            if len(test_data)>0:
+                test_data_inferred = self._infer(test_data)
+            else:
+                test_data_inferred = []
 
         if self.read_cache:
             b_it = iter(test_data_cached)
@@ -501,7 +505,13 @@ class Model(BaseClass):
             claim_gpu('')
             with multiprocess.Pool(recommend_n_workers()) as p:
                 dill_save(temp_dir+'parallel.pickle', self)
-                result = p.starmap(infer_internal_single_parallel, zip(test_data))            
+                #result = p.starmap(infer_internal_single_parallel, zip(test_data))            
+                from tqdm import tqdm
+                result = list(tqdm(
+                    p.imap(infer_internal_single_parallel, test_data),
+                    total=len(test_data),
+                    desc="Processing"
+                    ))
         else:
             result = []
             for xx in test_data:     

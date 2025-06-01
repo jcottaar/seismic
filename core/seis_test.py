@@ -80,14 +80,9 @@ def test_cost(data, prior):
     print (kgs.rms(cp.sum(gradient*offset_vec) - (cost_offset-cost)), kgs.rms(cost_offset-cost))
 
 def run_all_tests(test_reference_mode = False):
-    importlib.reload(kgs)
-    importlib.reload(seis_forward)
-    importlib.reload(seis_forward2)
-    importlib.reload(seis_prior)
-    importlib.reload(seis_invert)
-    kgs.debugging_mode = 3
-    kgs.profiling=False
-    seis_forward.reference_mode = False
+    #kgs.debugging_mode = 3
+    #kgs.profiling=False
+    #seis_forward.reference_mode = False
     data = kgs.load_all_train_data()
     
     test_stuff_on_one_case(data[2059], 1e-4, test_reference_mode=test_reference_mode)
@@ -96,12 +91,6 @@ def run_all_tests(test_reference_mode = False):
     test_prior(seis_prior.RowTotalVariation())
 
     test_cost(data[2059], seis_prior.RowTotalVariation())
-    
-    importlib.reload(kgs)
-    importlib.reload(seis_forward)
-    importlib.reload(seis_forward2)
-    importlib.reload(seis_prior)
-    importlib.reload(seis_invert)
 
     print('All tests passed!')
     
