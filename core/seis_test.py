@@ -77,6 +77,7 @@ def test_stuff_on_one_case(d, expected_match, test_reference_mode=False):
     #    for jj in range(len(offset_file)):
     #        print (kgs.rms(diff_result_file[jj][ii,...] - finite_difference_file[ii,jj]),kgs.rms(finite_difference_file[ii,jj]))
     for ii in range(N_test):
+        print(kgs.rms(diff_result[:,ii] - finite_difference[ii]),kgs.rms(finite_difference[ii])) 
         assert (kgs.rms(diff_result[:,ii] - finite_difference[ii])/kgs.rms(finite_difference[ii])) < 1e-5
 
             
@@ -132,7 +133,6 @@ def run_all_tests(test_reference_mode = False):
     data = kgs.load_all_train_data()
     
     test_stuff_on_one_case(data[2059], 1e-4, test_reference_mode=test_reference_mode)
-    return
     test_stuff_on_one_case(data[-1001], 1e-4, test_reference_mode=test_reference_mode)
 
     test_prior(seis_prior.RowTotalVariation())
