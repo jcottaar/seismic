@@ -14,7 +14,7 @@ profile_vals = dict()
 profiling = False
 profile_time = 0
 def reset_profile():
-    global sync_vals
+    global profile_vals
     profile_vals = dict()
 
 def profile(name):
@@ -171,12 +171,13 @@ def vel_to_seis(vec, vec_diff=None, vec_adjoint=None, adjoint_on_residual=False)
                                 (bx, by), (tx, ty),
                                 (
                                     temp1_flat, temp2_flat, alpha_flat,
-                                    p_complete_flat,
-                                    lapg_store_flat,
-                                    s_mod_adjoint, p_complete_adjoint_flat, temp1_adjoint_flat, temp2_adjoint_flat, alpha_adjoint_flat,
-                                    (it)*(nx*nz),
-                                    (it+1)*(nx*nz),
-                                    (it+2)*(nx*nz),
+                                    p_complete_flat[(it)*(nx*nz):],p_complete_flat[(it+1)*(nx*nz):],
+                                    lapg_store_flat[(it)*(nx*nz):],
+                                    s_mod_adjoint,  
+                                    p_complete_adjoint_flat[(it)*(nx*nz):],
+                                    p_complete_adjoint_flat[(it+1)*(nx*nz):],
+                                    p_complete_adjoint_flat[(it+2)*(nx*nz):],
+                                    temp1_adjoint_flat, temp2_adjoint_flat, alpha_adjoint_flat, lapg_store_adjoint_flat,                                    
                                     nx, nz, it,
                                     c2, c3,
                                     src_idx_dev
@@ -497,16 +498,17 @@ void update_p_adjoint(
               const double* __restrict__ temp1,
               const double* __restrict__ temp2,
               const double* __restrict__ alpha,
-              const double* __restrict__ p_complete,
+              const double* __restrict__ p_complete1,
+              const double* __restrict__ p_complete2,
               const double* __restrict__ lapg_store,
               double*  __restrict__ s_mod_adjoint,
-              double*  __restrict__ p_complete_adjoint,
+              double*  __restrict__ p_complete_adjoint1,
+              double*  __restrict__ p_complete_adjoint2,
+              double*  __restrict__ p_complete_adjoint3,
               double*  __restrict__ temp1_adjoint,
               double*  __restrict__ temp2_adjoint,
               double*  __restrict__ alpha_adjoint,
-              const int    ind_offset1,
-              const int    ind_offset2,
-              const int    ind_offset3,
+              double*  __restrict__ lapg_store_adjoint,
               const int    nx,
               const int    ny,
               const int    it,
@@ -517,9 +519,6 @@ void update_p_adjoint(
     int iy = blockDim.y * blockIdx.y + threadIdx.y;
     if (ix >= nx || iy >= ny) return;
     int idx = iy * nx + ix;
-    int idx1 = ind_offset1 + idx;
-    int idx2 = ind_offset2 + idx;
-    int idx3 = ind_offset3 + idx;
 
     // Manual wrap at ±1, ±2
     int ix_p1 = ix+1; if (ix_p1==nx)  ix_p1=0;
@@ -532,28 +531,28 @@ void update_p_adjoint(
     int iy_m2 = iy-2; if (iy_m2<0)     iy_m2+=ny;
 
     if (idx == src_idx[0]) {
-        s_mod_adjoint[it] = p_complete_adjoint[idx3];
+        s_mod_adjoint[it] = p_complete_adjoint3[idx];
     }
 
-    p_complete_adjoint[idx2] += temp1[idx]*p_complete_adjoint[idx3];
-    temp1_adjoint[idx] += p_complete[idx2]*p_complete_adjoint[idx3];
-    p_complete_adjoint[idx1] -= temp2[idx]*p_complete_adjoint[idx3];
-    temp2_adjoint[idx] -= p_complete[idx1]*p_complete_adjoint[idx3];
-    alpha_adjoint[idx] += lapg_store[idx1] * p_complete_adjoint[idx3];
-    //double lapg_store_adjoint[idx] = alpha[idx] * p_complete_adjoint[idx3];
+    p_complete_adjoint2[idx] += temp1[idx]*p_complete_adjoint3[idx];
+    temp1_adjoint[idx] += p_complete2[idx]*p_complete_adjoint3[idx];
+    p_complete_adjoint1[idx] -= temp2[idx]*p_complete_adjoint3[idx];
+    temp2_adjoint[idx] -= p_complete1[idx]*p_complete_adjoint3[idx];
+    alpha_adjoint[idx] += lapg_store[idx] * p_complete_adjoint3[idx];
+    //lapg_store_adjoint[idx] = alpha[idx] * p_complete_adjoint3[idx];
 
     // Collect neighbors (±1)
-    double t1 = alpha[iy  * nx + ix_p1] * p_complete_adjoint[ind_offset3 + iy  * nx + ix_p1] +
-                alpha[iy  * nx + ix_m1] * p_complete_adjoint[ind_offset3 + iy  * nx + ix_m1] +
-                alpha[iy_p1  * nx + ix] * p_complete_adjoint[ind_offset3 + iy_p1  * nx + ix] +
-                alpha[iy_m1  * nx + ix] * p_complete_adjoint[ind_offset3 + iy_m1  * nx + ix];
+    double t1 = alpha[iy  * nx + ix_p1] * p_complete_adjoint3[0 + iy  * nx + ix_p1] +
+                alpha[iy  * nx + ix_m1] * p_complete_adjoint3[0 + iy  * nx + ix_m1] +
+                alpha[iy_p1  * nx + ix] * p_complete_adjoint3[0 + iy_p1  * nx + ix] +
+                alpha[iy_m1  * nx + ix] * p_complete_adjoint3[0 + iy_m1  * nx + ix];
     // Collect neighbors (±2)
-    double t2 = alpha[iy  * nx + ix_p2] * p_complete_adjoint[ind_offset3 + iy  * nx + ix_p2] +
-                alpha[iy  * nx + ix_m2] * p_complete_adjoint[ind_offset3 + iy  * nx + ix_m2] +
-                alpha[iy_p2  * nx + ix] * p_complete_adjoint[ind_offset3 + iy_p2  * nx + ix] +
-                alpha[iy_m2  * nx + ix] * p_complete_adjoint[ind_offset3 + iy_m2  * nx + ix];
+    double t2 = alpha[iy  * nx + ix_p2] * p_complete_adjoint3[0 + iy  * nx + ix_p2] +
+                alpha[iy  * nx + ix_m2] * p_complete_adjoint3[0 + iy  * nx + ix_m2] +
+                alpha[iy_p2  * nx + ix] * p_complete_adjoint3[0 + iy_p2  * nx + ix] +
+                alpha[iy_m2  * nx + ix] * p_complete_adjoint3[0 + iy_m2  * nx + ix];
 
-    p_complete_adjoint[idx2]+=c2*t1+c3*t2;
+    p_complete_adjoint2[idx]+=c2*t1+c3*t2;
       
 }
 '''
