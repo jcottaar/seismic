@@ -69,7 +69,7 @@ def vel_to_seis(vec, vec_diff=None, vec_adjoint=None, adjoint_on_residual=False)
         v_adjoint = cp.zeros_like(v)  
         seis_combined_adjoint = cp.reshape(vec_adjoint, (5,999,70))
 
-    tx, ty = 16, 16
+    tx, ty = 32, 32
     bx = (nx + tx - 1) // tx
     by = (nz + ty - 1) // ty  
 
@@ -104,11 +104,10 @@ def vel_to_seis(vec, vec_diff=None, vec_adjoint=None, adjoint_on_residual=False)
                                 (bx, by), (tx, ty),
                                 (
                                     temp1_flat, temp2_flat, alpha_flat,
-                                    p_complete_flat,
-                                    lapg_store_flat,
-                                    (it)*(nx*nz),
-                                    (it+1)*(nx*nz),
-                                    (it+2)*(nx*nz),
+                                    p_complete_flat[it*(nx*nz):],
+                                    p_complete_flat[(it+1)*(nx*nz):],
+                                    p_complete_flat[(it+2)*(nx*nz):],
+                                    lapg_store_flat[nx*nz*it:],
                                     nx, nz, it,
                                     c2, c3,
                                     src_idx_dev, s_mod
@@ -411,18 +410,17 @@ void update_p(
               const double* __restrict__ temp1,
               const double* __restrict__ temp2,
               const double* __restrict__ alpha,
-              double*             __restrict__ pout,
+              const double*             __restrict__ pout,
+              const double*             __restrict__ pout1,
+              double*             __restrict__ pout2,
               double*             __restrict__ lapg_store,
-              const int    ind_offset1,
-              const int    ind_offset2,
-              const int    ind_offset3,
               const int    nx,
               const int    ny,
               const int    it,
               const double  c2,
               const double  c3,
-              const int*   src_idx,
-              const double* s_mod) {
+              const int*   __restrict__ src_idx,
+              const double* __restrict__ s_mod) {
     int ix = blockDim.x * blockIdx.x + threadIdx.x;
     int iy = blockDim.y * blockIdx.y + threadIdx.y;
     if (ix >= nx || iy >= ny) return;
@@ -442,30 +440,36 @@ void update_p(
     double t2;
     
     // Collect neighbors (±1)
-    t1 = pout[ind_offset2 + iy  * nx + ix_p1]
-             + pout[ind_offset2 + iy  * nx + ix_m1]
-             + pout[ind_offset2 + iy_p1 * nx + ix  ]
-             + pout[ind_offset2 + iy_m1 * nx + ix  ];
+    t1 = pout1[iy  * nx + ix_p1]
+             + pout1[iy  * nx + ix_m1]
+             + pout1[iy_p1 * nx + ix  ]
+             + pout1[iy_m1 * nx + ix  ];
     // Collect neighbors (±2)
-    t2 = pout[ind_offset2 + iy  * nx + ix_p2]
-             + pout[ind_offset2 + iy  * nx + ix_m2]
-             + pout[ind_offset2 + iy_p2 * nx + ix  ]
-             + pout[ind_offset2 + iy_m2 * nx + ix  ];
+    t2 = pout1[iy  * nx + ix_p2]
+             + pout1[iy  * nx + ix_m2]
+             + pout1[iy_p2 * nx + ix  ]
+             + pout1[iy_m2 * nx + ix  ];
 
     double lapg_store_local = (c2*t1+c3*t2);
-    lapg_store[ind_offset1+idx] = lapg_store_local;
+    lapg_store[idx] = lapg_store_local;
 
-    double out = temp1[idx]*pout[ind_offset2 + idx] 
-              - temp2[idx]*pout[ind_offset1+idx]
-              + alpha[idx]*lapg_store_local;
+    double temp1_local = __ldg(&temp1[idx]);
+    double temp2_local = __ldg(&temp2[idx]);
+    double pout1_local = __ldg(&pout1[idx]);
+    double pout_local = __ldg(&pout[idx]);
+    double alpha_local = __ldg(&alpha[idx]);
+    double out = temp1_local*pout1_local
+              - temp2_local*pout_local
+              + alpha_local*lapg_store_local;
 
     // fused source injection:
     if (idx == src_idx[0]) {
         out += s_mod[it];
     }
-    pout[ind_offset3+idx] = out;
+    pout2[idx] = out;
 }
 '''
+
 module = cp.RawModule(code=kernel_code)
 update_p = module.get_function('update_p')
 
