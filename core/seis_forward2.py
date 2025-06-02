@@ -35,6 +35,7 @@ def show_profile():
         
 stream = cp.cuda.Stream(non_blocking=True)
 graph = 0
+graph_diff = 0
 
 @kgs.profile_each_line
 def vel_to_seis(vec, vec_diff=None, vec_adjoint=None, adjoint_on_residual=False):
@@ -52,15 +53,10 @@ def vel_to_seis(vec, vec_diff=None, vec_adjoint=None, adjoint_on_residual=False)
     profile('init')
 
     # PREPARATION
-    #v[...],temp1[...],temp2[...],alpha[...] = prep_run(vec)
     prep_run(vec)
-
-    seis_combined = cp.zeros((5,999,70),dtype=kgs.base_type_gpu)
-    p_complete_list = []
-    
+     
     if do_diff:
-        v_diff,temp1_diff,temp2_diff,alpha_diff = prep_run_diff(vec_diff,v)        
-        seis_combined_diff = cp.zeros((5,999,70),dtype=kgs.base_type_gpu)
+        prep_run_diff(vec_diff)        
 
     if do_adjoint:        
         alpha_adjoint = cp.zeros_like(alpha)
@@ -79,6 +75,7 @@ def vel_to_seis(vec, vec_diff=None, vec_adjoint=None, adjoint_on_residual=False)
 
     global stream
     global graph
+    global graph_diff
 
     cp.cuda.Stream.null.synchronize()
 
@@ -91,7 +88,6 @@ def vel_to_seis(vec, vec_diff=None, vec_adjoint=None, adjoint_on_residual=False)
             bdt = (v[isz_list[i_source], isx_list[i_source]]*dt)**2
             s_mod[...] = bdt*s
     
-            #src_idx_dev = cp.reshape(cp.array(src_idx, dtype=cp.int32), (1,))
             src_idx_dev[...] = cp.array(src_idx, dtype=cp.int32)
     
             profile('prep for time loop')
@@ -121,30 +117,26 @@ def vel_to_seis(vec, vec_diff=None, vec_adjoint=None, adjoint_on_residual=False)
             stream.synchronize()
     
             profile('time loop')
-            seis_combined[i_source,...] = p_complete[2:,igz,igx]
+            seis_combined[i_source,...] = p_complete[2:,igz_dev,igx_dev]
     
             profile('extract seis')
     
-            if do_diff:
-                bdt_diff = 2*((cp.asnumpy(v[isz_list[i_source], isx_list[i_source]]*v_diff[isz_list[i_source], isx_list[i_source]])))* dt**2
-                s_mod_diff = bdt_diff*s
-                p_complete_diff = cp.zeros((nt+2,temp1.shape[0],temp1.shape[1]), dtype=kgs.base_type_gpu)
-        
+            if do_diff:                
+                bdt_diff = 2*((v[isz_list[i_source], isx_list[i_source]]*v_diff[isz_list[i_source], isx_list[i_source]]))* dt**2
+                s_mod_diff[...] = bdt_diff*s
+
                 for it in range(0, nt):
-                    p1_diff = p_complete_diff[it+1,...]
-                    p0_diff = p_complete_diff[it,...]
-                    p1 = p_complete[it+1,...]
-                    p0 = p_complete[it,...]
-                    lapg_store_diff = (cp.array(c2) * (cp.roll(p1_diff, 1, axis=1) + cp.roll(p1_diff, -1, axis=1) +
-                                   cp.roll(p1_diff, 1, axis=0) + cp.roll(p1_diff, -1, axis=0)) +
-                             cp.array(c3) * (cp.roll(p1_diff, 2, axis=1) + cp.roll(p1_diff, -2, axis=1) +
-                                   cp.roll(p1_diff, 2, axis=0) + cp.roll(p1_diff, -2, axis=0)))
-                    p_complete_diff[it+2,...] = (temp1 * p1_diff + temp1_diff*p1 - temp2_diff * p0 - temp2*p0_diff + 
+                    lapg_store_diff[...] = (cp.array(c2) * (cp.roll( p_complete_diff[it+1,...], 1, axis=1) + cp.roll( p_complete_diff[it+1,...], -1, axis=1) +
+                                   cp.roll( p_complete_diff[it+1,...], 1, axis=0) + cp.roll( p_complete_diff[it+1,...], -1, axis=0)) +
+                             cp.array(c3) * (cp.roll( p_complete_diff[it+1,...], 2, axis=1) + cp.roll( p_complete_diff[it+1,...], -2, axis=1) +
+                                   cp.roll( p_complete_diff[it+1,...], 2, axis=0) + cp.roll( p_complete_diff[it+1,...], -2, axis=0)))
+                    p_complete_diff[it+2,...] = (temp1 * p_complete_diff[it+1,...] + temp1_diff*p_complete[it+1,...] - temp2_diff * p_complete[it,...] - temp2*p_complete_diff[it,...] + 
                          alpha_diff * lapg_store[it,...] + alpha*lapg_store_diff)
                     p_complete_diff[it+2,...].ravel()[src_idx] += s_mod_diff[it]   
-        
-                seis_combined_diff[i_source,...] = p_complete_diff[2:,igz,igx]
-                del p_complete_diff
+
+                seis_combined_diff[i_source,...] = p_complete_diff[2:,igz_dev,igx_dev]
+
+                profile('diff')
                 
             if do_adjoint:     
                 p_complete_adjoint =  cp.zeros((nt+2,temp1.shape[0],temp1.shape[1]), dtype=kgs.base_type_gpu)
@@ -205,14 +197,14 @@ def vel_to_seis(vec, vec_diff=None, vec_adjoint=None, adjoint_on_residual=False)
 
     # FINALIZE
     assert seis_combined.shape == (5,999,70)
-    result =  seis_combined.flatten()[:,None]
+    result =  cp.copy(seis_combined.flatten()[:,None])
     if do_diff:
         assert seis_combined_diff.shape == (5,999,70)
-        result_diff =  seis_combined_diff.flatten()[:,None]
+        result_diff =  cp.copy(seis_combined_diff.flatten()[:,None])
     else:
         result_diff = None
     if do_adjoint:
-        result_adjoint = prep_run_adjoint(v_adjoint,temp1_adjoint,temp2_adjoint,alpha_adjoint,v)
+        result_adjoint = cp.copy(prep_run_adjoint(v_adjoint,temp1_adjoint,temp2_adjoint,alpha_adjoint,v))
     else:
         result_adjoint = None
 
@@ -236,18 +228,18 @@ def prep_run(vec):
     #return v,temp1,temp2,alpha
 
 
-def prep_run_diff(vec_diff,v):
+def prep_run_diff(vec_diff):
 
-    v_diff=cp.reshape(vec_diff[:-1,0], (70,70))
+    vv=cp.reshape(vec_diff[:-1,0], (70,70))
     min_vel_diff = vec_diff[-1,0]
     
-    v_diff = cp.pad(v_diff, ((nbc, nbc), (nbc, nbc)), mode='edge')
+    v_diff[...] = cp.pad(vv, ((nbc, nbc), (nbc, nbc)), mode='edge')
     abc_diff = min_vel_diff*damp
 
-    alpha_diff = v_diff * v * (2*(dt / dx) **2)
+    alpha_diff[...] = v_diff * v * (2*(dt / dx) **2)
     kappa_diff = abc_diff * dt
-    temp1_diff = 2 * c1 * alpha_diff - kappa_diff
-    temp2_diff = - kappa_diff
+    temp1_diff[...] = 2 * c1 * alpha_diff - kappa_diff
+    temp2_diff[...] = - kappa_diff
 
     return v_diff,temp1_diff,temp2_diff,alpha_diff
 
@@ -657,16 +649,27 @@ nx,nz = 310,310
 rcv_idx = nx*igz+igx
 
 
-
+seis_combined = cp.zeros((5,999,70),dtype=kgs.base_type_gpu)
 p_complete = cp.zeros((nt+2,nx,nz), dtype=kgs.base_type_gpu)
 lapg_store = cp.zeros((nt,nx,nz), dtype=kgs.base_type_gpu)
 p_complete_flat = p_complete.ravel();lapg_store_flat=lapg_store.ravel()
-
 temp1 = cp.zeros((nx,nz), dtype=kgs.base_type_gpu)
 temp2 = cp.zeros((nx,nz), dtype=kgs.base_type_gpu)
 alpha = cp.zeros((nx,nz), dtype=kgs.base_type_gpu)
 v = cp.zeros((nx,nz), dtype=kgs.base_type_gpu)
 temp1_flat = temp1.ravel();temp2_flat = temp2.ravel();alpha_flat = alpha.ravel()        
+s_mod = cp.zeros_like(s)
+
+seis_combined_diff = cp.zeros((5,999,70),dtype=kgs.base_type_gpu)
+p_complete_diff = cp.zeros((nt+2,nx,nz), dtype=kgs.base_type_gpu)
+lapg_store_diff = cp.zeros((nx,nz), dtype=kgs.base_type_gpu)
+temp1_diff = cp.zeros((nx,nz), dtype=kgs.base_type_gpu)
+temp2_diff = cp.zeros((nx,nz), dtype=kgs.base_type_gpu)
+alpha_diff = cp.zeros((nx,nz), dtype=kgs.base_type_gpu)
+v_diff = cp.zeros((nx,nz), dtype=kgs.base_type_gpu)
+s_mod_diff = cp.zeros_like(s)
 
 src_idx_dev = cp.zeros((1,), dtype=cp.int32)
-s_mod = cp.zeros_like(s)
+
+
+igz_dev,igx_dev = cp.array(igz), cp.array(igx)
