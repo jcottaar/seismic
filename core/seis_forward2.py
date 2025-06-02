@@ -77,11 +77,14 @@ def vel_to_seis(vec, vec_diff=None, vec_adjoint=None, adjoint_on_residual=False)
     # LOOP
 
     profile('prep for source loop')
+    
     for i_source in range(N_source_to_do):     
         src_idx = src_idx_list[i_source]
         bdt = (v[isz_list[i_source], isx_list[i_source]]*dt)**2
-        s_mod = bdt*s
-        
+        s_mod[...] = bdt*s
+
+        #src_idx_dev = cp.reshape(cp.array(src_idx, dtype=cp.int32), (1,))
+        src_idx_dev[...] = cp.array(src_idx, dtype=cp.int32)
 
         profile('prep for time loop')
         
@@ -98,7 +101,7 @@ def vel_to_seis(vec, vec_diff=None, vec_adjoint=None, adjoint_on_residual=False)
                             (it+2)*(nx*nz),
                             nx, nz, it,
                             c2, c3,
-                            src_idx, s_mod
+                            src_idx_dev, s_mod
                         )
                     )
 
@@ -401,7 +404,7 @@ void update_p(
               const int    it,
               const double  c2,
               const double  c3,
-              const int   src_idx,
+              const int*   src_idx,
               const double* s_mod) {
     int ix = blockDim.x * blockIdx.x + threadIdx.x;
     int iy = blockDim.y * blockIdx.y + threadIdx.y;
@@ -437,7 +440,7 @@ void update_p(
               + alpha[idx]*lapg_store_local;
 
     // fused source injection:
-    if (idx == src_idx) {
+    if (idx == src_idx[0]) {
         out += s_mod[it];
     }
     pout[ind_offset3+idx] = out;
@@ -640,3 +643,6 @@ temp2 = cp.zeros((nx,nz), dtype=kgs.base_type_gpu)
 alpha = cp.zeros((nx,nz), dtype=kgs.base_type_gpu)
 v = cp.zeros((nx,nz), dtype=kgs.base_type_gpu)
 temp1_flat = temp1.ravel();temp2_flat = temp2.ravel();alpha_flat = alpha.ravel()        
+
+src_idx_dev = cp.zeros((1,), dtype=cp.int32)
+s_mod = cp.zeros_like(s)
