@@ -37,6 +37,7 @@ def seis_to_vel(seismogram, velocity_guess, prior, scaling=1e10, maxiter=2000, m
     
     basis_functions = prior.basis_functions()
     x_guess = cp.asnumpy(cp.linalg.solve(basis_functions.T@basis_functions, basis_functions.T@(velocity_guess.to_vector())))
+    x_guess = x_guess.astype(dtype=kgs.base_type)
     target = seismogram.to_vector()
 
     # def cost_func(x):
@@ -52,10 +53,11 @@ def seis_to_vel(seismogram, velocity_guess, prior, scaling=1e10, maxiter=2000, m
     #     return cp.asnumpy(xx[:,0])
 
     def cost_and_gradient_func(x):
-        cost,gradient = cost_and_gradient(cp.array(x)[:,None], target, prior, basis_functions, compute_gradient=True)
+        xx = cp.array(x,dtype=kgs.base_type_gpu)[:,None]
+        cost,gradient = cost_and_gradient(xx, target, prior, basis_functions, compute_gradient=True)
         if not true_vel is None:
             #print(cost, kgs.rms(basis_functions@cp.array(x[:,None])-true_vel.to_vector()))
-            diagnostics['vel_error_per_fev'].append(cp.asnumpy(kgs.rms(basis_functions@cp.array(x[:,None])-true_vel.to_vector())))
+            diagnostics['vel_error_per_fev'].append(cp.asnumpy(kgs.rms(basis_functions@xx-true_vel.to_vector())))
         cost = cost*scaling
         gradient = gradient*scaling
         return cp.asnumpy(cost), cp.asnumpy(gradient[:,0])

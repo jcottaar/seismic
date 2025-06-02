@@ -50,6 +50,9 @@ def vel_to_seis(vec, vec_diff=None, vec_adjoint=None, adjoint_on_residual=False)
     assert vec_diff is None or vec_diff.shape == (4901,1)
     do_diff = not (vec_diff is None)
     do_adjoint = not (vec_adjoint is None)
+    assert vec.dtype == kgs.base_type_gpu
+    assert vec_diff is None or vec_diff.dtype == kgs.base_type_gpu
+    assert vec_adjoint is None or vec_adjoint.dtype == kgs.base_type_gpu
 
     profile('init')
 
@@ -471,6 +474,7 @@ def vel_to_seis_ref(vec, vec_diff=None, vec_adjoint=None, adjoint_on_residual=Fa
 
 
 # CUDA kernel to update p and add source
+print(kgs.base_type_str)
 kernel_code = r'''
 extern "C" __global__
 void update_p(
@@ -698,6 +702,7 @@ s = cp.array(s, dtype=kgs.base_type_gpu)
 c1 = (-2.5)
 c2 = (4.0 / 3.0)
 c3 = (-1.0 / 12.0)
+c2,c3 = np.array(c2,dtype=kgs.base_type), np.array(c3,dtype=kgs.base_type)
 
 src_idx_list = []
 isx_list = []

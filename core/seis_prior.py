@@ -50,7 +50,7 @@ class RowTotalVariation(Prior):
     def _basis_functions(self):
         basis_vectors = []
         for i_row in range(70):
-            mat = np.zeros((70,70))
+            mat = np.zeros((70,70),dtype=kgs.base_type)
             mat[i_row,:]=1.
             basis_vectors.append(np.concatenate((mat.flatten(), np.array([0]))))
         basis_vectors.append(np.concatenate((0*mat.flatten(), np.array([1]))))        

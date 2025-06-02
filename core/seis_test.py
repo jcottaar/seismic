@@ -33,12 +33,14 @@ def test_stuff_on_one_case(d, expected_match, test_reference_mode=False):
     res1 = cp.sum((result-offset_vec2)*result_diff)
     res2 = cp.sum(result_adjoint*offset_vec1)
     print('adjoint', cp.abs(res1-res2), res1)
-    assert cp.abs(res1-res2)/cp.abs(res1)<1e-10
+    if kgs.base_type_gpu == cp.float64:
+        assert cp.abs(res1-res2)/cp.abs(res1)<1e-10
     #base_file = kgs.dill_load(kgs.temp_dir + 'nondiff')
 
     result_offset = seis_forward2.vel_to_seis(d.velocity.to_vector()+offset_vec1, None,None)[0]
     print('diff', kgs.rms(result_offset-result-result_diff), kgs.rms(result_offset-result))
-    assert kgs.rms(result_offset-result-result_diff)/kgs.rms(result_offset-result)<1e-5
+    if kgs.base_type_gpu == cp.float64:
+        assert kgs.rms(result_offset-result-result_diff)/kgs.rms(result_offset-result)<1e-5
 
     d.unload()
 

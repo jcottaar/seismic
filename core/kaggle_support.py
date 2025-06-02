@@ -80,6 +80,10 @@ if not multiprocess.current_process().name == "MainProcess":
 
 import cupy as cp
 
+base_type = np.float32
+base_type_gpu = cp.float32
+base_type_str = 'float'
+
 base_type = np.float64
 base_type_gpu = cp.float64
 base_type_str = 'double'
