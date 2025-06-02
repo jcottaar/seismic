@@ -59,11 +59,15 @@ def vel_to_seis(vec, vec_diff=None, vec_adjoint=None, adjoint_on_residual=False)
         prep_run_diff(vec_diff)        
 
     if do_adjoint:        
-        alpha_adjoint = cp.zeros_like(alpha)
-        temp1_adjoint = cp.zeros_like(alpha)
-        temp2_adjoint = cp.zeros_like(alpha)
-        v_adjoint = cp.zeros_like(v)  
-        seis_combined_adjoint = cp.reshape(vec_adjoint, (5,999,70))
+        #alpha_adjoint = cp.zeros_like(alpha)
+        #temp1_adjoint = cp.zeros_like(alpha)
+        #temp2_adjoint = cp.zeros_like(alpha)
+        #v_adjoint = cp.zeros_like(v)  
+        alpha_adjoint[...] = 0
+        temp1_adjoint[...] = 0
+        temp2_adjoint[...] = 0
+        v_adjoint[...] = 0
+        seis_combined_adjoint[...] = cp.reshape(vec_adjoint, (5,999,70))
 
     tx, ty = 32, 32
     bx = (nx + tx - 1) // tx
@@ -139,16 +143,19 @@ def vel_to_seis(vec, vec_diff=None, vec_adjoint=None, adjoint_on_residual=False)
                 profile('diff')
                 
             if do_adjoint:     
-                p_complete_adjoint =  cp.zeros((nt+2,temp1.shape[0],temp1.shape[1]), dtype=kgs.base_type_gpu)
+                #p_complete_adjoint =  cp.zeros((nt+2,temp1.shape[0],temp1.shape[1]), dtype=kgs.base_type_gpu)
+                p_complete_adjoint[...] = 0
                 if adjoint_on_residual:
-                    p_complete_adjoint[2:,igz,igx] = seis_combined[i_source,...]-seis_combined_adjoint[i_source,...]
+                    p_complete_adjoint[2:,igz_dev,igx_dev] = seis_combined[i_source,...]-seis_combined_adjoint[i_source,...]
                 else:
-                    p_complete_adjoint[2:,igz,igx] = seis_combined_adjoint[i_source,...]
-        
-                s_mod_adjoint = cp.zeros_like(s_mod)
-                s_mod_adjoint_flat = s_mod_adjoint.ravel(); p_complete_adjoint_flat = p_complete_adjoint.ravel();
-                temp1_adjoint_flat = temp1_adjoint.ravel();temp2_adjoint_flat = temp2_adjoint.ravel();
-                alpha_adjoint_flat = alpha_adjoint.ravel();
+                    p_complete_adjoint[2:,igz_dev,igx_dev] = seis_combined_adjoint[i_source,...]
+
+                #p_complete_adjoint[...] = 0
+                s_mod_adjoint[...] = 0
+                #s_mod_adjoint = cp.zeros_like(s_mod)
+                #s_mod_adjoint_flat = s_mod_adjoint.ravel(); p_complete_adjoint_flat = p_complete_adjoint.ravel();
+                #temp1_adjoint_flat = temp1_adjoint.ravel();temp2_adjoint_flat = temp2_adjoint.ravel();
+                #alpha_adjoint_flat = alpha_adjoint.ravel();
                 profile('prep for time loop adjoint')
                 for it in np.arange(nt-1,-1,-1):
     
@@ -160,7 +167,7 @@ def vel_to_seis(vec, vec_diff=None, vec_adjoint=None, adjoint_on_residual=False)
                                 temp1_flat, temp2_flat, alpha_flat,
                                 p_complete_flat,
                                 lapg_store_flat,
-                                s_mod_adjoint_flat, p_complete_adjoint_flat, temp1_adjoint_flat, temp2_adjoint_flat, alpha_adjoint_flat,
+                                s_mod_adjoint, p_complete_adjoint_flat, temp1_adjoint_flat, temp2_adjoint_flat, alpha_adjoint_flat,
                                 (it)*(nx*nz),
                                 (it+1)*(nx*nz),
                                 (it+2)*(nx*nz),
@@ -186,9 +193,9 @@ def vel_to_seis(vec, vec_diff=None, vec_adjoint=None, adjoint_on_residual=False)
     
                 profile('time loop adjoint')
         
-                bdt_adjoint = cp.sum(s_mod_adjoint*cp.array(s))
-                v_adjoint[isz_list[i_source], isx_list[i_source]] += 2*dt**2 * v[isz_list[i_source], isx_list[i_source]] * bdt_adjoint
-                del p_complete_adjoint
+                #bdt_adjoint[...] = cp.sum(s_mod_adjoint*cp.array(s))
+                v_adjoint[isz_list[i_source], isx_list[i_source]] += 2*dt**2 * v[isz_list[i_source], isx_list[i_source]] * cp.sum(s_mod_adjoint*s)
+                #del p_complete_adjoint
     
                 profile('end adjoint')
                 
@@ -204,7 +211,7 @@ def vel_to_seis(vec, vec_diff=None, vec_adjoint=None, adjoint_on_residual=False)
     else:
         result_diff = None
     if do_adjoint:
-        result_adjoint = cp.copy(prep_run_adjoint(v_adjoint,temp1_adjoint,temp2_adjoint,alpha_adjoint,v))
+        result_adjoint = cp.copy(prep_run_adjoint())
     else:
         result_adjoint = None
 
@@ -243,21 +250,21 @@ def prep_run_diff(vec_diff):
 
     return v_diff,temp1_diff,temp2_diff,alpha_diff
 
-def prep_run_adjoint(v_adjoint,temp1_adjoint,temp2_adjoint,alpha_adjoint,v):
+def prep_run_adjoint():
 
     kappa_adjoint = -temp2_adjoint
-    alpha_adjoint += 2 * c1 * temp1_adjoint
+    alpha_adjoint[...] += 2 * c1 * temp1_adjoint
     kappa_adjoint += -temp1_adjoint
     abc_adjoint = kappa_adjoint * dt
     v2_adjoint = alpha_adjoint * (dt/dx)**2
 
-    v_adjoint += 2*v*v2_adjoint
+    v_adjoint[...] += 2*v*v2_adjoint
     min_vel_adjoint = cp.sum(abc_adjoint*damp)
-    v_adjoint = seis_numerics.unpad_edge_padded_gradient(v_adjoint,nbc)#v_adjoint[nbc:-nbc,nbc:-nbc]
+    vv_adjoint = seis_numerics.unpad_edge_padded_gradient(v_adjoint,nbc)#v_adjoint[nbc:-nbc,nbc:-nbc]
 
     result_adjoint = cp.zeros((4901,1),dtype=kgs.base_type_gpu)
     result_adjoint[-1,0] = min_vel_adjoint
-    result_adjoint[:-1,0] = v_adjoint.flatten()
+    result_adjoint[:-1,0] = vv_adjoint.flatten()
 
     return result_adjoint
 
@@ -668,6 +675,21 @@ temp2_diff = cp.zeros((nx,nz), dtype=kgs.base_type_gpu)
 alpha_diff = cp.zeros((nx,nz), dtype=kgs.base_type_gpu)
 v_diff = cp.zeros((nx,nz), dtype=kgs.base_type_gpu)
 s_mod_diff = cp.zeros_like(s)
+
+seis_combined_adjoint = cp.zeros((5,999,70),dtype=kgs.base_type_gpu)
+p_complete_adjoint = cp.zeros((nt+2,nx,nz), dtype=kgs.base_type_gpu)
+lapg_store_adjoint = cp.zeros((nx,nz), dtype=kgs.base_type_gpu)
+temp1_adjoint = cp.zeros((nx,nz), dtype=kgs.base_type_gpu)
+temp2_adjoint = cp.zeros((nx,nz), dtype=kgs.base_type_gpu)
+alpha_adjoint = cp.zeros((nx,nz), dtype=kgs.base_type_gpu)
+v_adjoint = cp.zeros((nx,nz), dtype=kgs.base_type_gpu)
+s_mod_adjoint = cp.zeros_like(s)
+p_complete_adjoint_flat = p_complete_adjoint.ravel()
+lapg_store_adjoint_flat = lapg_store_adjoint.ravel()
+temp1_adjoint_flat = temp1_adjoint.ravel()
+temp2_adjoint_flat = temp2_adjoint.ravel()
+alpha_adjoint_flat = alpha_adjoint.ravel()
+v_adjoint_flat = v_adjoint.ravel()
 
 src_idx_dev = cp.zeros((1,), dtype=cp.int32)
 
