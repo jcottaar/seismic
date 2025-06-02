@@ -474,7 +474,6 @@ def vel_to_seis_ref(vec, vec_diff=None, vec_adjoint=None, adjoint_on_residual=Fa
 
 
 # CUDA kernel to update p and add source
-print(kgs.base_type_str)
 kernel_code = r'''
 extern "C" __global__
 void update_p(
@@ -574,15 +573,6 @@ void update_p_adjoint(
     if (ix >= nx || iy >= ny) return;
     int idx = iy * nx + ix;
 
-    // Manual wrap at ±1, ±2
-    int ix_p1 = ix+1; if (ix_p1==nx)  ix_p1=0;
-    int ix_m1 = ix-1; if (ix_m1<0)    ix_m1=nx-1;
-    int ix_p2 = ix+2; if (ix_p2>=nx)  ix_p2-=nx;
-    int ix_m2 = ix-2; if (ix_m2<0)     ix_m2+=nx;
-    int iy_p1 = iy+1; if (iy_p1==ny)  iy_p1=0;
-    int iy_m1 = iy-1; if (iy_m1<0)    iy_m1=ny-1;
-    int iy_p2 = iy+2; if (iy_p2>=ny)  iy_p2-=ny;
-    int iy_m2 = iy-2; if (iy_m2<0)     iy_m2+=ny;
 
     if (idx == src_idx[0]) {
         s_mod_adjoint[it] = p_complete_adjoint3[idx];
@@ -594,6 +584,16 @@ void update_p_adjoint(
     temp2_adjoint[idx] -= p_complete1[idx]*p_complete_adjoint3[idx];
     alpha_adjoint[idx] += lapg_store[idx] * p_complete_adjoint3[idx];
     //lapg_store_adjoint[idx] = alpha[idx] * p_complete_adjoint3[idx];
+
+    // Manual wrap at ±1, ±2
+    int ix_p1 = ix+1; if (ix_p1==nx)  ix_p1=0;
+    int ix_m1 = ix-1; if (ix_m1<0)    ix_m1=nx-1;
+    int ix_p2 = ix+2; if (ix_p2>=nx)  ix_p2-=nx;
+    int ix_m2 = ix-2; if (ix_m2<0)     ix_m2+=nx;
+    int iy_p1 = iy+1; if (iy_p1==ny)  iy_p1=0;
+    int iy_m1 = iy-1; if (iy_m1<0)    iy_m1=ny-1;
+    int iy_p2 = iy+2; if (iy_p2>=ny)  iy_p2-=ny;
+    int iy_m2 = iy-2; if (iy_m2<0)     iy_m2+=ny;
 
     // Collect neighbors (±1)
     floattype t1 = alpha[iy  * nx + ix_p1] * p_complete_adjoint3[0 + iy  * nx + ix_p1] +

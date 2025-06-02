@@ -21,10 +21,8 @@ class ModelOnlyFlatVel(kgs.Model):
         if kpi<1e-4:
             # FlatVel
             data = self.model.infer([data])[0]
-        elif kpi>1e-3:
-            pass
         else:
-            raise Exception('Unclear dataset')
+            pass
         return data
 
 def default_model():
