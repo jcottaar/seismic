@@ -9,6 +9,9 @@ import seis_numerics
 
 N_source_to_do = 5
 
+stream = cp.cuda.Stream(non_blocking=True)
+graph = 0
+
 @kgs.profile_each_line
 def vel_to_seis(vec, vec_diff=None, vec_adjoint=None, adjoint_on_residual=False):
     # Outputs:
@@ -57,7 +60,8 @@ def vel_to_seis(vec, vec_diff=None, vec_adjoint=None, adjoint_on_residual=False)
 
     p_complete_flat = p_complete.ravel();lapg_store_flat=lapg_store.ravel()
 
-    stream = cp.cuda.Stream(non_blocking=True)
+    global stream
+    global graph
 
     cp.cuda.Stream.null.synchronize()
     for i_source in range(N_source_to_do):     

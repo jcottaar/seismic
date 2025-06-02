@@ -33,7 +33,8 @@ def show_profile():
         if not key=='start':
             print(f"{key}: {np.sum(value):.2f}")
         
-
+stream = cp.cuda.Stream(non_blocking=True)
+graph = 0
 
 @kgs.profile_each_line
 def vel_to_seis(vec, vec_diff=None, vec_adjoint=None, adjoint_on_residual=False):
@@ -76,115 +77,131 @@ def vel_to_seis(vec, vec_diff=None, vec_adjoint=None, adjoint_on_residual=False)
 
     # LOOP
 
-    profile('prep for source loop')
-    
-    for i_source in range(N_source_to_do):     
-        src_idx = src_idx_list[i_source]
-        bdt = (v[isz_list[i_source], isx_list[i_source]]*dt)**2
-        s_mod[...] = bdt*s
+    global stream
+    global graph
 
-        #src_idx_dev = cp.reshape(cp.array(src_idx, dtype=cp.int32), (1,))
-        src_idx_dev[...] = cp.array(src_idx, dtype=cp.int32)
+    cp.cuda.Stream.null.synchronize()
 
-        profile('prep for time loop')
+    with stream:
+
+        profile('prep for source loop')
         
-        for it in range(0, nt):
+        for i_source in range(N_source_to_do):     
+            src_idx = src_idx_list[i_source]
+            bdt = (v[isz_list[i_source], isx_list[i_source]]*dt)**2
+            s_mod[...] = bdt*s
+    
+            #src_idx_dev = cp.reshape(cp.array(src_idx, dtype=cp.int32), (1,))
+            src_idx_dev[...] = cp.array(src_idx, dtype=cp.int32)
+    
+            profile('prep for time loop')
 
-            update_p(
-                        (bx, by), (tx, ty),
-                        (
-                            temp1_flat, temp2_flat, alpha_flat,
-                            p_complete_flat,
-                            lapg_store_flat,
-                            (it)*(nx*nz),
-                            (it+1)*(nx*nz),
-                            (it+2)*(nx*nz),
-                            nx, nz, it,
-                            c2, c3,
-                            src_idx_dev, s_mod
+            if graph==0:
+                stream.begin_capture()
+                for it in range(0, nt):
+        
+                    update_p(
+                                (bx, by), (tx, ty),
+                                (
+                                    temp1_flat, temp2_flat, alpha_flat,
+                                    p_complete_flat,
+                                    lapg_store_flat,
+                                    (it)*(nx*nz),
+                                    (it+1)*(nx*nz),
+                                    (it+2)*(nx*nz),
+                                    nx, nz, it,
+                                    c2, c3,
+                                    src_idx_dev, s_mod
+                                )
+                            )
+                graph = stream.end_capture()
+                graph.upload(stream)
+                profile('stream capture')
+
+            graph.launch(stream)
+            stream.synchronize()
+    
+            profile('time loop')
+            seis_combined[i_source,...] = p_complete[2:,igz,igx]
+    
+            profile('extract seis')
+    
+            if do_diff:
+                bdt_diff = 2*((cp.asnumpy(v[isz_list[i_source], isx_list[i_source]]*v_diff[isz_list[i_source], isx_list[i_source]])))* dt**2
+                s_mod_diff = bdt_diff*s
+                p_complete_diff = cp.zeros((nt+2,temp1.shape[0],temp1.shape[1]), dtype=kgs.base_type_gpu)
+        
+                for it in range(0, nt):
+                    p1_diff = p_complete_diff[it+1,...]
+                    p0_diff = p_complete_diff[it,...]
+                    p1 = p_complete[it+1,...]
+                    p0 = p_complete[it,...]
+                    lapg_store_diff = (cp.array(c2) * (cp.roll(p1_diff, 1, axis=1) + cp.roll(p1_diff, -1, axis=1) +
+                                   cp.roll(p1_diff, 1, axis=0) + cp.roll(p1_diff, -1, axis=0)) +
+                             cp.array(c3) * (cp.roll(p1_diff, 2, axis=1) + cp.roll(p1_diff, -2, axis=1) +
+                                   cp.roll(p1_diff, 2, axis=0) + cp.roll(p1_diff, -2, axis=0)))
+                    p_complete_diff[it+2,...] = (temp1 * p1_diff + temp1_diff*p1 - temp2_diff * p0 - temp2*p0_diff + 
+                         alpha_diff * lapg_store[it,...] + alpha*lapg_store_diff)
+                    p_complete_diff[it+2,...].ravel()[src_idx] += s_mod_diff[it]   
+        
+                seis_combined_diff[i_source,...] = p_complete_diff[2:,igz,igx]
+                del p_complete_diff
+                
+            if do_adjoint:     
+                p_complete_adjoint =  cp.zeros((nt+2,temp1.shape[0],temp1.shape[1]), dtype=kgs.base_type_gpu)
+                if adjoint_on_residual:
+                    p_complete_adjoint[2:,igz,igx] = seis_combined[i_source,...]-seis_combined_adjoint[i_source,...]
+                else:
+                    p_complete_adjoint[2:,igz,igx] = seis_combined_adjoint[i_source,...]
+        
+                s_mod_adjoint = cp.zeros_like(s_mod)
+                s_mod_adjoint_flat = s_mod_adjoint.ravel(); p_complete_adjoint_flat = p_complete_adjoint.ravel();
+                temp1_adjoint_flat = temp1_adjoint.ravel();temp2_adjoint_flat = temp2_adjoint.ravel();
+                alpha_adjoint_flat = alpha_adjoint.ravel();
+                profile('prep for time loop adjoint')
+                for it in np.arange(nt-1,-1,-1):
+    
+                    
+                    
+                    update_p_adjoint(
+                            (bx, by), (tx, ty),
+                            (
+                                temp1_flat, temp2_flat, alpha_flat,
+                                p_complete_flat,
+                                lapg_store_flat,
+                                s_mod_adjoint_flat, p_complete_adjoint_flat, temp1_adjoint_flat, temp2_adjoint_flat, alpha_adjoint_flat,
+                                (it)*(nx*nz),
+                                (it+1)*(nx*nz),
+                                (it+2)*(nx*nz),
+                                nx, nz, it,
+                                c2, c3,
+                                src_idx
+                            )
                         )
-                    )
-
-        profile('time loop')
-        seis_combined[i_source,...] = p_complete[2:,igz,igx]
-
-        profile('extract seis')
-
-        if do_diff:
-            bdt_diff = 2*((cp.asnumpy(v[isz_list[i_source], isx_list[i_source]]*v_diff[isz_list[i_source], isx_list[i_source]])))* dt**2
-            s_mod_diff = bdt_diff*s
-            p_complete_diff = cp.zeros((nt+2,temp1.shape[0],temp1.shape[1]), dtype=kgs.base_type_gpu)
+                    
     
-            for it in range(0, nt):
-                p1_diff = p_complete_diff[it+1,...]
-                p0_diff = p_complete_diff[it,...]
-                p1 = p_complete[it+1,...]
-                p0 = p_complete[it,...]
-                lapg_store_diff = (cp.array(c2) * (cp.roll(p1_diff, 1, axis=1) + cp.roll(p1_diff, -1, axis=1) +
-                               cp.roll(p1_diff, 1, axis=0) + cp.roll(p1_diff, -1, axis=0)) +
-                         cp.array(c3) * (cp.roll(p1_diff, 2, axis=1) + cp.roll(p1_diff, -2, axis=1) +
-                               cp.roll(p1_diff, 2, axis=0) + cp.roll(p1_diff, -2, axis=0)))
-                p_complete_diff[it+2,...] = (temp1 * p1_diff + temp1_diff*p1 - temp2_diff * p0 - temp2*p0_diff + 
-                     alpha_diff * lapg_store[it,...] + alpha*lapg_store_diff)
-                p_complete_diff[it+2,...].ravel()[src_idx] += s_mod_diff[it]   
+                    # s_mod_adjoint[it] = p_complete_adjoint[it+2,...].ravel()[src_idx]
+                    # p_complete_adjoint[it+1,...] += temp1 * p_complete_adjoint[it+2,...]
+                    # temp1_adjoint+=p_complete[it+1,...] * p_complete_adjoint[it+2,...]
+                    # p_complete_adjoint[it,...] -= temp2 * p_complete_adjoint[it+2,...]
+                    # temp2_adjoint-=p_complete[it,...] * p_complete_adjoint[it+2,...]
+                    # alpha_adjoint+=lapg_store[it,...] * p_complete_adjoint[it+2,...]
+                    # lapg_store_adjoint = alpha*p_complete_adjoint[it+2,...]
+                    # p1_adjoint = (cp.array(c2) * (cp.roll(lapg_store_adjoint, -1, axis=1) + cp.roll(lapg_store_adjoint, 1, axis=1) +
+                    #                   cp.roll(lapg_store_adjoint, -1, axis=0) + cp.roll(lapg_store_adjoint, 1, axis=0)) +
+                    #   cp.array(c3) * (cp.roll(lapg_store_adjoint, -2, axis=1) + cp.roll(lapg_store_adjoint, 2, axis=1) +
+                    #                   cp.roll(lapg_store_adjoint, -2, axis=0) + cp.roll(lapg_store_adjoint, 2, axis=0)))
+                    # p_complete_adjoint[it+1,...]+= p1_adjoint
     
-            seis_combined_diff[i_source,...] = p_complete_diff[2:,igz,igx]
-            del p_complete_diff
-            
-        if do_adjoint:     
-            p_complete_adjoint =  cp.zeros((nt+2,temp1.shape[0],temp1.shape[1]), dtype=kgs.base_type_gpu)
-            if adjoint_on_residual:
-                p_complete_adjoint[2:,igz,igx] = seis_combined[i_source,...]-seis_combined_adjoint[i_source,...]
-            else:
-                p_complete_adjoint[2:,igz,igx] = seis_combined_adjoint[i_source,...]
+                profile('time loop adjoint')
+        
+                bdt_adjoint = cp.sum(s_mod_adjoint*cp.array(s))
+                v_adjoint[isz_list[i_source], isx_list[i_source]] += 2*dt**2 * v[isz_list[i_source], isx_list[i_source]] * bdt_adjoint
+                del p_complete_adjoint
     
-            s_mod_adjoint = cp.zeros_like(s_mod)
-            s_mod_adjoint_flat = s_mod_adjoint.ravel(); p_complete_adjoint_flat = p_complete_adjoint.ravel();
-            temp1_adjoint_flat = temp1_adjoint.ravel();temp2_adjoint_flat = temp2_adjoint.ravel();
-            alpha_adjoint_flat = alpha_adjoint.ravel();
-            profile('prep for time loop adjoint')
-            for it in np.arange(nt-1,-1,-1):
-
+                profile('end adjoint')
                 
-                
-                update_p_adjoint(
-                        (bx, by), (tx, ty),
-                        (
-                            temp1_flat, temp2_flat, alpha_flat,
-                            p_complete_flat,
-                            lapg_store_flat,
-                            s_mod_adjoint_flat, p_complete_adjoint_flat, temp1_adjoint_flat, temp2_adjoint_flat, alpha_adjoint_flat,
-                            (it)*(nx*nz),
-                            (it+1)*(nx*nz),
-                            (it+2)*(nx*nz),
-                            nx, nz, it,
-                            c2, c3,
-                            src_idx
-                        )
-                    )
-                
-
-                # s_mod_adjoint[it] = p_complete_adjoint[it+2,...].ravel()[src_idx]
-                # p_complete_adjoint[it+1,...] += temp1 * p_complete_adjoint[it+2,...]
-                # temp1_adjoint+=p_complete[it+1,...] * p_complete_adjoint[it+2,...]
-                # p_complete_adjoint[it,...] -= temp2 * p_complete_adjoint[it+2,...]
-                # temp2_adjoint-=p_complete[it,...] * p_complete_adjoint[it+2,...]
-                # alpha_adjoint+=lapg_store[it,...] * p_complete_adjoint[it+2,...]
-                # lapg_store_adjoint = alpha*p_complete_adjoint[it+2,...]
-                # p1_adjoint = (cp.array(c2) * (cp.roll(lapg_store_adjoint, -1, axis=1) + cp.roll(lapg_store_adjoint, 1, axis=1) +
-                #                   cp.roll(lapg_store_adjoint, -1, axis=0) + cp.roll(lapg_store_adjoint, 1, axis=0)) +
-                #   cp.array(c3) * (cp.roll(lapg_store_adjoint, -2, axis=1) + cp.roll(lapg_store_adjoint, 2, axis=1) +
-                #                   cp.roll(lapg_store_adjoint, -2, axis=0) + cp.roll(lapg_store_adjoint, 2, axis=0)))
-                # p_complete_adjoint[it+1,...]+= p1_adjoint
-
-            profile('time loop adjoint')
-    
-            bdt_adjoint = cp.sum(s_mod_adjoint*cp.array(s))
-            v_adjoint[isz_list[i_source], isx_list[i_source]] += 2*dt**2 * v[isz_list[i_source], isx_list[i_source]] * bdt_adjoint
-            del p_complete_adjoint
-
-            profile('end adjoint')
-            
+    stream.synchronize()
             
 
     # FINALIZE
@@ -421,13 +438,16 @@ void update_p(
     int iy_p2 = iy+2; if (iy_p2>=ny)  iy_p2-=ny;
     int iy_m2 = iy-2; if (iy_m2<0)     iy_m2+=ny;
 
+    double t1;
+    double t2;
+    
     // Collect neighbors (±1)
-    double t1 = pout[ind_offset2 + iy  * nx + ix_p1]
+    t1 = pout[ind_offset2 + iy  * nx + ix_p1]
              + pout[ind_offset2 + iy  * nx + ix_m1]
              + pout[ind_offset2 + iy_p1 * nx + ix  ]
              + pout[ind_offset2 + iy_m1 * nx + ix  ];
     // Collect neighbors (±2)
-    double t2 = pout[ind_offset2 + iy  * nx + ix_p2]
+    t2 = pout[ind_offset2 + iy  * nx + ix_p2]
              + pout[ind_offset2 + iy  * nx + ix_m2]
              + pout[ind_offset2 + iy_p2 * nx + ix  ]
              + pout[ind_offset2 + iy_m2 * nx + ix  ];
