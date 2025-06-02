@@ -6,8 +6,34 @@ import cupy as cp
 import kaggle_support as kgs
 import copy
 import seis_numerics
+import time
 
 N_source_to_do = 5
+
+profile_vals = dict()
+profiling = False
+profile_time = 0
+def reset_profile():
+    global sync_vals
+    profile_vals = dict()
+
+def profile(name):
+    if profiling:
+        cp.cuda.Stream.null.synchronize()
+        global profile_time
+        global profile_vals
+        time_diff = time.time()-profile_time
+        profile_time = time.time()
+        if not name in profile_vals:
+            profile_vals[name] = []
+        profile_vals[name].append(time_diff)
+
+def show_profile():
+    for key,value in profile_vals.items():
+        if not key=='start':
+            print(f"{key}: {np.sum(value):.2f}")
+        
+
 
 @kgs.profile_each_line
 def vel_to_seis(vec, vec_diff=None, vec_adjoint=None, adjoint_on_residual=False):
@@ -15,15 +41,18 @@ def vel_to_seis(vec, vec_diff=None, vec_adjoint=None, adjoint_on_residual=False)
     # result: the seismogram associated with velocity field vec
     # result_diff: J@vec_diff, where J is the Jacobian of the operation above
     # result_adjoint: J^T@vec_adjoint, or J^T@(result-vec_adjoint) if adjoint_on_residual=True
+    profile('start')
     assert vec.shape == (4901,1)
     assert vec_adjoint is None or vec_adjoint.shape == (5*999*70,1)
     assert vec_diff is None or vec_diff.shape == (4901,1)
     do_diff = not (vec_diff is None)
     do_adjoint = not (vec_adjoint is None)
 
+    profile('init')
 
     # PREPARATION
-    v,temp1,temp2,alpha = prep_run(vec)
+    #v[...],temp1[...],temp2[...],alpha[...] = prep_run(vec)
+    prep_run(vec)
 
     seis_combined = cp.zeros((5,999,70),dtype=kgs.base_type_gpu)
     p_complete_list = []
@@ -43,19 +72,18 @@ def vel_to_seis(vec, vec_diff=None, vec_adjoint=None, adjoint_on_residual=False)
     bx = (nx + tx - 1) // tx
     by = (nz + ty - 1) // ty  
 
+    
 
     # LOOP
-    
+
+    profile('prep for source loop')
     for i_source in range(N_source_to_do):     
         src_idx = src_idx_list[i_source]
-        bdt = (cp.asnumpy(v[isz_list[i_source], isx_list[i_source]])*dt)**2
+        bdt = (v[isz_list[i_source], isx_list[i_source]]*dt)**2
         s_mod = bdt*s
+        
 
-        p_complete = cp.zeros((nt+2,temp1.shape[0],temp1.shape[1]), dtype=kgs.base_type_gpu)
-        lapg_store = cp.zeros((nt,temp1.shape[0],temp1.shape[1]), dtype=kgs.base_type_gpu)
-
-        temp1_flat = temp1.ravel();temp2_flat = temp2.ravel();alpha_flat = alpha.ravel()
-        p_complete_flat = p_complete.ravel();lapg_store_flat=lapg_store.ravel()
+        profile('prep for time loop')
         
         for it in range(0, nt):
 
@@ -68,13 +96,16 @@ def vel_to_seis(vec, vec_diff=None, vec_adjoint=None, adjoint_on_residual=False)
                             (it)*(nx*nz),
                             (it+1)*(nx*nz),
                             (it+2)*(nx*nz),
-                            nx, nz,
+                            nx, nz, it,
                             c2, c3,
-                            src_idx, s_mod[it]
+                            src_idx, s_mod
                         )
                     )
 
+        profile('time loop')
         seis_combined[i_source,...] = p_complete[2:,igz,igx]
+
+        profile('extract seis')
 
         if do_diff:
             bdt_diff = 2*((cp.asnumpy(v[isz_list[i_source], isx_list[i_source]]*v_diff[isz_list[i_source], isx_list[i_source]])))* dt**2
@@ -108,6 +139,7 @@ def vel_to_seis(vec, vec_diff=None, vec_adjoint=None, adjoint_on_residual=False)
             s_mod_adjoint_flat = s_mod_adjoint.ravel(); p_complete_adjoint_flat = p_complete_adjoint.ravel();
             temp1_adjoint_flat = temp1_adjoint.ravel();temp2_adjoint_flat = temp2_adjoint.ravel();
             alpha_adjoint_flat = alpha_adjoint.ravel();
+            profile('prep for time loop adjoint')
             for it in np.arange(nt-1,-1,-1):
 
                 
@@ -141,11 +173,15 @@ def vel_to_seis(vec, vec_diff=None, vec_adjoint=None, adjoint_on_residual=False)
                 #   cp.array(c3) * (cp.roll(lapg_store_adjoint, -2, axis=1) + cp.roll(lapg_store_adjoint, 2, axis=1) +
                 #                   cp.roll(lapg_store_adjoint, -2, axis=0) + cp.roll(lapg_store_adjoint, 2, axis=0)))
                 # p_complete_adjoint[it+1,...]+= p1_adjoint
-                
+
+            profile('time loop adjoint')
     
             bdt_adjoint = cp.sum(s_mod_adjoint*cp.array(s))
             v_adjoint[isz_list[i_source], isx_list[i_source]] += 2*dt**2 * v[isz_list[i_source], isx_list[i_source]] * bdt_adjoint
             del p_complete_adjoint
+
+            profile('end adjoint')
+            
             
 
     # FINALIZE
@@ -161,22 +197,24 @@ def vel_to_seis(vec, vec_diff=None, vec_adjoint=None, adjoint_on_residual=False)
     else:
         result_adjoint = None
 
+    profile('finish')
+
     return result, result_diff, result_adjoint
 
 def prep_run(vec):
 
-    v=cp.reshape(vec[:-1,0], (70,70))
+    vv=cp.reshape(vec[:-1,0], (70,70))
     min_vel = vec[-1,0]
     
-    v = cp.pad(v, ((nbc, nbc), (nbc, nbc)), mode='edge')
+    v[...] = cp.pad(vv, ((nbc, nbc), (nbc, nbc)), mode='edge')
     abc = min_vel*damp
 
-    alpha = (v * (dt / dx)) ** 2    
+    alpha[...] = (v * (dt / dx)) ** 2    
     kappa = abc * dt
-    temp1 = 2 + 2 * c1 * alpha - kappa
-    temp2 = 1 - kappa
+    temp1[...] = 2 + 2 * c1 * alpha - kappa
+    temp2[...] = 1 - kappa
 
-    return v,temp1,temp2,alpha
+    #return v,temp1,temp2,alpha
 
 
 def prep_run_diff(vec_diff,v):
@@ -360,10 +398,11 @@ void update_p(
               const int    ind_offset3,
               const int    nx,
               const int    ny,
+              const int    it,
               const double  c2,
               const double  c3,
               const int   src_idx,
-              const double s_val) {
+              const double* s_mod) {
     int ix = blockDim.x * blockIdx.x + threadIdx.x;
     int iy = blockDim.y * blockIdx.y + threadIdx.y;
     if (ix >= nx || iy >= ny) return;
@@ -399,7 +438,7 @@ void update_p(
 
     // fused source injection:
     if (idx == src_idx) {
-        out += s_val;
+        out += s_mod[it];
     }
     pout[ind_offset3+idx] = out;
 }
@@ -563,6 +602,7 @@ dt = (1e-3)
 freq = 15
 s, _ = (ricker(freq, dt))
 s = expand_source(s, nt)
+s = cp.array(s, dtype=kgs.base_type_gpu)
 c1 = (-2.5)
 c2 = (4.0 / 3.0)
 c3 = (-1.0 / 12.0)
@@ -591,3 +631,12 @@ rcv_idx = nx*igz+igx
 
 
 
+p_complete = cp.zeros((nt+2,nx,nz), dtype=kgs.base_type_gpu)
+lapg_store = cp.zeros((nt,nx,nz), dtype=kgs.base_type_gpu)
+p_complete_flat = p_complete.ravel();lapg_store_flat=lapg_store.ravel()
+
+temp1 = cp.zeros((nx,nz), dtype=kgs.base_type_gpu)
+temp2 = cp.zeros((nx,nz), dtype=kgs.base_type_gpu)
+alpha = cp.zeros((nx,nz), dtype=kgs.base_type_gpu)
+v = cp.zeros((nx,nz), dtype=kgs.base_type_gpu)
+temp1_flat = temp1.ravel();temp2_flat = temp2.ravel();alpha_flat = alpha.ravel()        
