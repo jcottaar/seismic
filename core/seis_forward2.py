@@ -287,6 +287,56 @@ def prep_run_adjoint():
     return result_adjoint
 
 
+def prep_run_ref(vec):
+
+    v=cp.reshape(vec[:-1,0], (70,70))
+    min_vel = vec[-1,0]
+    
+    v = cp.pad(v, ((nbc, nbc), (nbc, nbc)), mode='edge')
+    abc = min_vel*damp
+
+    alpha = (v * (dt / dx)) ** 2    
+    kappa = abc * dt
+    temp1 = 2 + 2 * c1 * alpha - kappa
+    temp2 = 1 - kappa
+
+    return v,temp1,temp2,alpha
+
+
+def prep_run_diff_ref(vec_diff,v):
+
+    v_diff=cp.reshape(vec_diff[:-1,0], (70,70))
+    min_vel_diff = vec_diff[-1,0]
+    
+    v_diff = cp.pad(v_diff, ((nbc, nbc), (nbc, nbc)), mode='edge')
+    abc_diff = min_vel_diff*damp
+
+    alpha_diff = v_diff * v * (2*(dt / dx) **2)
+    kappa_diff = abc_diff * dt
+    temp1_diff = 2 * c1 * alpha_diff - kappa_diff
+    temp2_diff = - kappa_diff
+
+    return v_diff,temp1_diff,temp2_diff,alpha_diff
+
+def prep_run_adjoint_ref(v_adjoint,temp1_adjoint,temp2_adjoint,alpha_adjoint,v):
+
+    kappa_adjoint = -temp2_adjoint
+    alpha_adjoint += 2 * c1 * temp1_adjoint
+    kappa_adjoint += -temp1_adjoint
+    abc_adjoint = kappa_adjoint * dt
+    v2_adjoint = alpha_adjoint * (dt/dx)**2
+
+    v_adjoint += 2*v*v2_adjoint
+    min_vel_adjoint = cp.sum(abc_adjoint*damp)
+    v_adjoint = seis_numerics.unpad_edge_padded_gradient(v_adjoint,nbc)#v_adjoint[nbc:-nbc,nbc:-nbc]
+
+    result_adjoint = cp.zeros((4901,1),dtype=kgs.base_type_gpu)
+    result_adjoint[-1,0] = min_vel_adjoint
+    result_adjoint[:-1,0] = v_adjoint.flatten()
+
+    return result_adjoint
+
+
 def vel_to_seis_ref(vec, vec_diff=None, vec_adjoint=None, adjoint_on_residual=False):
     # Outputs:
     # result: the seismogram associated with velocity field vec
@@ -298,7 +348,7 @@ def vel_to_seis_ref(vec, vec_diff=None, vec_adjoint=None, adjoint_on_residual=Fa
     do_diff = not (vec_diff is None)
     do_adjoint = not (vec_adjoint is None)
 
-    v,temp1,temp2,alpha = prep_run(vec)
+    v,temp1,temp2,alpha = prep_run_ref(vec)
 
     seis_combined = cp.zeros((5,999,70),dtype=kgs.base_type_gpu)
     p_complete_list = []
@@ -333,7 +383,7 @@ def vel_to_seis_ref(vec, vec_diff=None, vec_adjoint=None, adjoint_on_residual=Fa
 
     if do_diff:
 
-        v_diff,temp1_diff,temp2_diff,alpha_diff = prep_run_diff(vec_diff,v)
+        v_diff,temp1_diff,temp2_diff,alpha_diff = prep_run_diff_ref(vec_diff,v)
         
         seis_combined_diff = cp.zeros((5,999,70),dtype=kgs.base_type_gpu)
         for i_source in range(N_source_to_do):
@@ -408,7 +458,7 @@ def vel_to_seis_ref(vec, vec_diff=None, vec_adjoint=None, adjoint_on_residual=Fa
             bdt_adjoint = cp.sum(s_mod_adjoint*cp.array(s))
             v_adjoint[isz_list[i_source], isx_list[i_source]] += 2*dt**2 * v[isz_list[i_source], isx_list[i_source]] * bdt_adjoint
             
-        result_adjoint = prep_run_adjoint(v_adjoint,temp1_adjoint,temp2_adjoint,alpha_adjoint,v)
+        result_adjoint = prep_run_adjoint_ref(v_adjoint,temp1_adjoint,temp2_adjoint,alpha_adjoint,v)
     else:
         result_adjoint = None
 
