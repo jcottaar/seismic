@@ -28,14 +28,15 @@ def profile(name):
             profile_vals[name] = []
         profile_vals[name].append(time_diff)
 
-def show_profile():
+def show_profile(N_run):
     for key,value in profile_vals.items():
         if not key=='start':
-            print(f"{key}: {np.sum(value):.2f}")
+            print(f"{key}: {np.sum(value)/N_run:.4f}")
         
 stream = cp.cuda.Stream(non_blocking=True)
 graph = 0
 graph_diff = 0
+graph_adjoint = 0
 
 @kgs.profile_each_line
 def vel_to_seis(vec, vec_diff=None, vec_adjoint=None, adjoint_on_residual=False):
@@ -79,7 +80,7 @@ def vel_to_seis(vec, vec_diff=None, vec_adjoint=None, adjoint_on_residual=False)
 
     global stream
     global graph
-    global graph_diff
+    global graph_adjoint
 
     cp.cuda.Stream.null.synchronize()
 
@@ -98,6 +99,7 @@ def vel_to_seis(vec, vec_diff=None, vec_adjoint=None, adjoint_on_residual=False)
 
             if graph==0:
                 stream.begin_capture()
+                print('capturing graph')
                 for it in range(0, nt):
         
                     update_p(
@@ -157,40 +159,55 @@ def vel_to_seis(vec, vec_diff=None, vec_adjoint=None, adjoint_on_residual=False)
                 #temp1_adjoint_flat = temp1_adjoint.ravel();temp2_adjoint_flat = temp2_adjoint.ravel();
                 #alpha_adjoint_flat = alpha_adjoint.ravel();
                 profile('prep for time loop adjoint')
-                for it in np.arange(nt-1,-1,-1):
-    
+
+                if graph_adjoint==0:
+                    stream.begin_capture()
+                    print('capturing graph')
                     
                     
-                    update_p_adjoint(
-                            (bx, by), (tx, ty),
-                            (
-                                temp1_flat, temp2_flat, alpha_flat,
-                                p_complete_flat,
-                                lapg_store_flat,
-                                s_mod_adjoint, p_complete_adjoint_flat, temp1_adjoint_flat, temp2_adjoint_flat, alpha_adjoint_flat,
-                                (it)*(nx*nz),
-                                (it+1)*(nx*nz),
-                                (it+2)*(nx*nz),
-                                nx, nz, it,
-                                c2, c3,
-                                src_idx
+                    for it in np.arange(nt-1,-1,-1):       
+                        
+                        update_p_adjoint(
+                                (bx, by), (tx, ty),
+                                (
+                                    temp1_flat, temp2_flat, alpha_flat,
+                                    p_complete_flat,
+                                    lapg_store_flat,
+                                    s_mod_adjoint, p_complete_adjoint_flat, temp1_adjoint_flat, temp2_adjoint_flat, alpha_adjoint_flat,
+                                    (it)*(nx*nz),
+                                    (it+1)*(nx*nz),
+                                    (it+2)*(nx*nz),
+                                    nx, nz, it,
+                                    c2, c3,
+                                    src_idx_dev
+                                )
                             )
-                        )
-                    
-    
-                    # s_mod_adjoint[it] = p_complete_adjoint[it+2,...].ravel()[src_idx]
-                    # p_complete_adjoint[it+1,...] += temp1 * p_complete_adjoint[it+2,...]
-                    # temp1_adjoint+=p_complete[it+1,...] * p_complete_adjoint[it+2,...]
-                    # p_complete_adjoint[it,...] -= temp2 * p_complete_adjoint[it+2,...]
-                    # temp2_adjoint-=p_complete[it,...] * p_complete_adjoint[it+2,...]
-                    # alpha_adjoint+=lapg_store[it,...] * p_complete_adjoint[it+2,...]
-                    # lapg_store_adjoint = alpha*p_complete_adjoint[it+2,...]
-                    # p1_adjoint = (cp.array(c2) * (cp.roll(lapg_store_adjoint, -1, axis=1) + cp.roll(lapg_store_adjoint, 1, axis=1) +
-                    #                   cp.roll(lapg_store_adjoint, -1, axis=0) + cp.roll(lapg_store_adjoint, 1, axis=0)) +
-                    #   cp.array(c3) * (cp.roll(lapg_store_adjoint, -2, axis=1) + cp.roll(lapg_store_adjoint, 2, axis=1) +
-                    #                   cp.roll(lapg_store_adjoint, -2, axis=0) + cp.roll(lapg_store_adjoint, 2, axis=0)))
-                    # p_complete_adjoint[it+1,...]+= p1_adjoint
-    
+
+                    graph_adjoint = stream.end_capture()
+                    graph_adjoint.upload(stream)       
+
+                #p_complete_adjoint[...] = 0
+                
+
+                graph_adjoint.launch(stream)
+                # for it in np.arange(nt-1,-1,-1):       
+                        
+                #     update_p_adjoint(
+                #             (bx, by), (tx, ty),
+                #             (
+                #                 temp1_flat, temp2_flat, alpha_flat,
+                #                 p_complete_flat,
+                #                 lapg_store_flat,
+                #                 s_mod_adjoint, p_complete_adjoint_flat, temp1_adjoint_flat, temp2_adjoint_flat, alpha_adjoint_flat,
+                #                 (it)*(nx*nz),
+                #                 (it+1)*(nx*nz),
+                #                 (it+2)*(nx*nz),
+                #                 nx, nz, it,
+                #                 c2, c3,
+                #                 src_idx_dev
+                #             )
+                #             )
+                stream.synchronize()
                 profile('time loop adjoint')
         
                 #bdt_adjoint[...] = cp.sum(s_mod_adjoint*cp.array(s))
@@ -495,7 +512,7 @@ void update_p_adjoint(
               const int    it,
               const double  c2,
               const double  c3,
-              const int src_idx) {
+              const int*   __restrict__ src_idx) {
     int ix = blockDim.x * blockIdx.x + threadIdx.x;
     int iy = blockDim.y * blockIdx.y + threadIdx.y;
     if (ix >= nx || iy >= ny) return;
@@ -514,7 +531,7 @@ void update_p_adjoint(
     int iy_p2 = iy+2; if (iy_p2>=ny)  iy_p2-=ny;
     int iy_m2 = iy-2; if (iy_m2<0)     iy_m2+=ny;
 
-    if (idx == src_idx) {
+    if (idx == src_idx[0]) {
         s_mod_adjoint[it] = p_complete_adjoint[idx3];
     }
 
