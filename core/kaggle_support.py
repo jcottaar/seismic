@@ -82,6 +82,7 @@ import cupy as cp
 
 base_type = np.float64
 base_type_gpu = cp.float64
+base_type_str = 'double'
 
 
 '''

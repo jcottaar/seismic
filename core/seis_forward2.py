@@ -424,20 +424,20 @@ def vel_to_seis_ref(vec, vec_diff=None, vec_adjoint=None, adjoint_on_residual=Fa
 kernel_code = r'''
 extern "C" __global__
 void update_p(
-              const double* __restrict__ temp1,
-              const double* __restrict__ temp2,
-              const double* __restrict__ alpha,
-              const double*             __restrict__ pout,
-              const double*             __restrict__ pout1,
-              double*             __restrict__ pout2,
-              double*             __restrict__ lapg_store,
+              const floattype* __restrict__ temp1,
+              const floattype* __restrict__ temp2,
+              const floattype* __restrict__ alpha,
+              const floattype*             __restrict__ pout,
+              const floattype*             __restrict__ pout1,
+              floattype*             __restrict__ pout2,
+              floattype*             __restrict__ lapg_store,
               const int    nx,
               const int    ny,
               const int    it,
-              const double  c2,
-              const double  c3,
+              const floattype  c2,
+              const floattype  c3,
               const int*   __restrict__ src_idx,
-              const double* __restrict__ s_mod) {
+              const floattype* __restrict__ s_mod) {
     int ix = blockDim.x * blockIdx.x + threadIdx.x;
     int iy = blockDim.y * blockIdx.y + threadIdx.y;
     if (ix >= nx || iy >= ny) return;
@@ -453,8 +453,8 @@ void update_p(
     int iy_p2 = iy+2; if (iy_p2>=ny)  iy_p2-=ny;
     int iy_m2 = iy-2; if (iy_m2<0)     iy_m2+=ny;
 
-    double t1;
-    double t2;
+    floattype t1;
+    floattype t2;
     
     // Collect neighbors (±1)
     t1 = pout1[iy  * nx + ix_p1]
@@ -467,15 +467,15 @@ void update_p(
              + pout1[iy_p2 * nx + ix  ]
              + pout1[iy_m2 * nx + ix  ];
 
-    double lapg_store_local = (c2*t1+c3*t2);
+    floattype lapg_store_local = (c2*t1+c3*t2);
     lapg_store[idx] = lapg_store_local;
 
-    double temp1_local = __ldg(&temp1[idx]);
-    double temp2_local = __ldg(&temp2[idx]);
-    double pout1_local = __ldg(&pout1[idx]);
-    double pout_local = __ldg(&pout[idx]);
-    double alpha_local = __ldg(&alpha[idx]);
-    double out = temp1_local*pout1_local
+    floattype temp1_local = __ldg(&temp1[idx]);
+    floattype temp2_local = __ldg(&temp2[idx]);
+    floattype pout1_local = __ldg(&pout1[idx]);
+    floattype pout_local = __ldg(&pout[idx]);
+    floattype alpha_local = __ldg(&alpha[idx]);
+    floattype out = temp1_local*pout1_local
               - temp2_local*pout_local
               + alpha_local*lapg_store_local;
 
@@ -487,7 +487,7 @@ void update_p(
 }
 '''
 
-module = cp.RawModule(code=kernel_code)
+module = cp.RawModule(code=kernel_code.replace('floattype', kgs.base_type_str))
 update_p = module.get_function('update_p')
 
 
@@ -495,25 +495,25 @@ update_p = module.get_function('update_p')
 kernel_code = r'''
 extern "C" __global__
 void update_p_adjoint(
-              const double* __restrict__ temp1,
-              const double* __restrict__ temp2,
-              const double* __restrict__ alpha,
-              const double* __restrict__ p_complete1,
-              const double* __restrict__ p_complete2,
-              const double* __restrict__ lapg_store,
-              double*  __restrict__ s_mod_adjoint,
-              double*  __restrict__ p_complete_adjoint1,
-              double*  __restrict__ p_complete_adjoint2,
-              double*  __restrict__ p_complete_adjoint3,
-              double*  __restrict__ temp1_adjoint,
-              double*  __restrict__ temp2_adjoint,
-              double*  __restrict__ alpha_adjoint,
-              double*  __restrict__ lapg_store_adjoint,
+              const floattype* __restrict__ temp1,
+              const floattype* __restrict__ temp2,
+              const floattype* __restrict__ alpha,
+              const floattype* __restrict__ p_complete1,
+              const floattype* __restrict__ p_complete2,
+              const floattype* __restrict__ lapg_store,
+              floattype*  __restrict__ s_mod_adjoint,
+              floattype*  __restrict__ p_complete_adjoint1,
+              floattype*  __restrict__ p_complete_adjoint2,
+              floattype*  __restrict__ p_complete_adjoint3,
+              floattype*  __restrict__ temp1_adjoint,
+              floattype*  __restrict__ temp2_adjoint,
+              floattype*  __restrict__ alpha_adjoint,
+              floattype*  __restrict__ lapg_store_adjoint,
               const int    nx,
               const int    ny,
               const int    it,
-              const double  c2,
-              const double  c3,
+              const floattype  c2,
+              const floattype  c3,
               const int*   __restrict__ src_idx) {
     int ix = blockDim.x * blockIdx.x + threadIdx.x;
     int iy = blockDim.y * blockIdx.y + threadIdx.y;
@@ -542,12 +542,12 @@ void update_p_adjoint(
     //lapg_store_adjoint[idx] = alpha[idx] * p_complete_adjoint3[idx];
 
     // Collect neighbors (±1)
-    double t1 = alpha[iy  * nx + ix_p1] * p_complete_adjoint3[0 + iy  * nx + ix_p1] +
+    floattype t1 = alpha[iy  * nx + ix_p1] * p_complete_adjoint3[0 + iy  * nx + ix_p1] +
                 alpha[iy  * nx + ix_m1] * p_complete_adjoint3[0 + iy  * nx + ix_m1] +
                 alpha[iy_p1  * nx + ix] * p_complete_adjoint3[0 + iy_p1  * nx + ix] +
                 alpha[iy_m1  * nx + ix] * p_complete_adjoint3[0 + iy_m1  * nx + ix];
     // Collect neighbors (±2)
-    double t2 = alpha[iy  * nx + ix_p2] * p_complete_adjoint3[0 + iy  * nx + ix_p2] +
+    floattype t2 = alpha[iy  * nx + ix_p2] * p_complete_adjoint3[0 + iy  * nx + ix_p2] +
                 alpha[iy  * nx + ix_m2] * p_complete_adjoint3[0 + iy  * nx + ix_m2] +
                 alpha[iy_p2  * nx + ix] * p_complete_adjoint3[0 + iy_p2  * nx + ix] +
                 alpha[iy_m2  * nx + ix] * p_complete_adjoint3[0 + iy_m2  * nx + ix];
@@ -556,7 +556,7 @@ void update_p_adjoint(
       
 }
 '''
-module = cp.RawModule(code=kernel_code)
+module = cp.RawModule(code=kernel_code.replace('floattype', kgs.base_type_str))
 update_p_adjoint = module.get_function('update_p_adjoint')
 
 
