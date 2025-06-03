@@ -12,7 +12,14 @@ from dataclasses import dataclass, field, fields
 
 def do_diagnostics_run(data, model, do_which_list, param_func, param_values, param_name):
     model.check_constraints()
+    model.run_in_parallel = False
     data.load_to_memory()
+
+    plt.figure()
+    plt.imshow(cp.asnumpy(data.velocity.data))
+    plt.colorbar()
+    plt.title(data.cache_name())
+    plt.pause(0.001)
 
     # do_which_list:
     # 0: seis_remodeled -> vel_true from vel_true
@@ -25,10 +32,10 @@ def do_diagnostics_run(data, model, do_which_list, param_func, param_values, par
     vel_true = data.velocity
     seis_given = data.seismogram
     seis_remodeled = copy.deepcopy(seis_given)
-    seis_remodeled.from_vector(seis_forward2.vel_to_seis(vel_true.to_vector()))
-    vel_guess = seis_nn.make_default_pretrained().infer([d])[0].velocity
-
-    seis_forward2.true_vel = data.velocity
+    seis_remodeled.from_vector(seis_forward2.vel_to_seis(vel_true.to_vector())[0])
+    vel_guess = seis_nn.default_pretrained.infer([data])[0].velocity
+    vel_true_np = copy.deepcopy(vel_true)
+    vel_true_np.data = cp.asnumpy(vel_true.data)
 
     results=[]
     for v in param_values:
@@ -43,19 +50,18 @@ def do_diagnostics_run(data, model, do_which_list, param_func, param_values, par
                 continue
             match i_which:
                 case 0:
-                    seis = seis_remodeled
-                    vel_start = vel_true
+                    seis_target = seis_remodeled
+                    vel_start = vel_true_np
                 case 1:
-                    seis = seis_given
-                    vel_start = vel_true
+                    seis_target = seis_given
+                    vel_start = vel_true_np
                 case 2:
-                    seis = seis_given
+                    seis_target = seis_given
                     vel_start = vel_guess
-                    
-                    
-
-    seis_forward2.true_vel = None
-        
+            data_in = copy.deepcopy(data)
+            data_in.velocity_guess = vel_start
+            data_in.seismogram = seis_target
+            results[-1].append(model.infer([data_in]))
 
     
                        

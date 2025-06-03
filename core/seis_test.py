@@ -75,8 +75,8 @@ def test_cost(data, prior):
     target = data.seismogram.to_vector()
     basis_functions = prior.basis_functions()
 
-    cost_offset = seis_invert.cost_and_gradient(base_vec+offset_vec, target, prior, basis_functions, compute_gradient=False)
-    cost,gradient = seis_invert.cost_and_gradient(base_vec, target, prior, basis_functions, compute_gradient=True)
+    cost_offset,_,_ = seis_invert.cost_and_gradient(base_vec+offset_vec, target, prior, basis_functions, compute_gradient=False)
+    cost,gradient,_,_ = seis_invert.cost_and_gradient(base_vec, target, prior, basis_functions, compute_gradient=True)
 
     assert (kgs.rms(cp.sum(gradient*offset_vec) - (cost_offset-cost))/kgs.rms(cost_offset-cost))<1e-4
     print (kgs.rms(cp.sum(gradient*offset_vec) - (cost_offset-cost)), kgs.rms(cost_offset-cost))

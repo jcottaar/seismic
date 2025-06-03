@@ -12,7 +12,7 @@ from _model import Net, EnsembleModel
 import glob
 #import torch.utils.dlpack
 
-def make_default_pretrained():
+def _make_default_pretrained():
     models = []
     print(kgs.brendan_model_dir+"*.pth")
     for f in sorted(glob.glob(kgs.brendan_model_dir+"*caformer*.pt")):
@@ -152,3 +152,5 @@ class NeuralNetwork(kgs.Model):
     #     self.model.cpu()
     #     kgs.claim_gpu('')
     #     return data
+
+default_pretrained = _make_default_pretrained()
