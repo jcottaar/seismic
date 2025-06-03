@@ -14,7 +14,7 @@ class Prior(kgs.BaseClass):
 
     def basis_functions(self):
         res = self._basis_functions()
-        assert type(res)==cp.ndarray
+        #assert type(res)==cp.ndarray
         assert res.dtype == kgs.base_type_gpu
         assert res.shape == (4901, self.N)
         return res
@@ -72,6 +72,53 @@ class RowTotalVariation(Prior):
             gradient[1:69] = sign[:-1] - sign[1:]            # sign[:-1] = sign[0..67], sign[1:] = sign[1..68]
             gradient[69] = sign[-1]
             gradient = gradient/69
+        else:
+            gradient = None
+
+        return cost, gradient
+
+
+@dataclass
+class SquaredExponential(Prior):
+    length_scale = 20.
+    noise = 100.
+    sigma = 1000.
+    sigma_mean = 5000.
+    K = 0
+    P = 0
+
+    def __post_init__(self):
+        # Mark the object as frozen after initialization        
+        super().__post_init__()
+        self.N = 4901
+        self.λ = 1e-8
+
+    def _basis_functions(self):
+        
+        x = cp.arange(0,70)[:,None]+cp.zeros( (1,70) )
+        y = cp.arange(0,70)[None,:]+cp.zeros( (70,1) )
+        x = x.flatten()[:,None]
+        y = y.flatten()[:,None]
+        dist_matrix = cp.sqrt((x-x.T)**2+(y-y.T)**2)        
+        K = self.sigma**2*cp.exp(-dist_matrix**2/(2*(self.length_scale)**2))        
+        K = K+self.sigma_mean**2
+        K = K+self.noise**2*cp.eye(4900)
+        K = K.astype(kgs.base_type_gpu)
+        self.K = K
+        self.P = cp.linalg.inv(K)
+
+        #import cupyx.scipy.sparse
+        #basis_vectors = cupyx.scipy.sparse.identity(4901, dtype=kgs.base_type_gpu)
+        basis_vectors = cp.eye(4901, dtype=kgs.base_type_gpu)
+        return basis_vectors
+
+    def _compute_cost_and_gradient(self, x, compute_gradient):
+
+        cost = x[:-1,:].T@self.P@x[:-1,:]
+        cost = cost[0,0]
+
+        if compute_gradient:
+            gradient = 2*cp.concatenate((self.P@x[:-1,:], cp.zeros((1,1),kgs.base_type_gpu)))
         else:
             gradient = None
 

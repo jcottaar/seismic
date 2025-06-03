@@ -38,7 +38,7 @@ graph = 0
 graph_diff = 0
 graph_adjoint = 0
 
-@kgs.profile_each_line
+#@kgs.profile_each_line
 def vel_to_seis(vec, vec_diff=None, vec_adjoint=None, adjoint_on_residual=False):
     # Outputs:
     # result: the seismogram associated with velocity field vec

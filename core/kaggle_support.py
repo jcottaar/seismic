@@ -454,7 +454,7 @@ class Model(BaseClass):
         pass
         # No training needed if not overridden
 
-    @profile_each_line
+    #@profile_each_line
     def infer(self, test_data):
         assert self.state == 1
         test_data = copy.deepcopy(test_data)

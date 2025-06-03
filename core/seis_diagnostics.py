@@ -87,7 +87,8 @@ def do_diagnostics_run(data, model, do_which_list, param_func, param_values, par
 
         _,ax = plt.subplots(1,len(names),figsize=(5*len(names),4))
         for i_plot in range(len(names)):
-            plt.sca(ax[i_plot])
+            if len(names)>1:
+                plt.sca(ax[i_plot])
             plt.imshow(results[-1][i_plot].velocity_guess.data-vel_true_np.data)
             plt.colorbar()
             plt.title(names[i_plot])

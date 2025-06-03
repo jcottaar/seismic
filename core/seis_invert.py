@@ -6,7 +6,9 @@ import seis_prior
 import scipy
 import copy
 from dataclasses import dataclass, field, fields
+print('maxcor')
 
+@kgs.profile_each_line
 def cost_and_gradient(x, target, prior, basis_functions, compute_gradient=False):
 
     # Prior part
@@ -14,6 +16,8 @@ def cost_and_gradient(x, target, prior, basis_functions, compute_gradient=False)
         cost_prior, gradient_prior = prior.compute_cost_and_gradient(x, compute_gradient=True)
     else:
         cost_prior = prior.compute_cost_and_gradient(x, compute_gradient=False)
+
+    cp.cuda.Stream.null.synchronize()
 
     # Residual part
     vec = basis_functions@x
@@ -33,9 +37,10 @@ def cost_and_gradient(x, target, prior, basis_functions, compute_gradient=False)
         return cost_prior + cost_residual, cost_prior, cost_residual
 
 true_vel = None
+
 def seis_to_vel(seismogram, velocity_guess, prior, scaling=1e10, maxiter=2000, method='BFGS'):
     basis_functions = prior.basis_functions()
-    x_guess = cp.asnumpy(cp.linalg.solve(basis_functions.T@basis_functions, basis_functions.T@(velocity_guess.to_vector())))
+    x_guess = cp.asnumpy(cp.linalg.solve(cp.array(basis_functions.T@basis_functions), basis_functions.T@(velocity_guess.to_vector())))
     x_guess = x_guess.astype(dtype=kgs.base_type)
     target = seismogram.to_vector()
 
@@ -71,7 +76,7 @@ def seis_to_vel(seismogram, velocity_guess, prior, scaling=1e10, maxiter=2000, m
     diagnostics['vel_error_per_fev'] = []
     diagnostics['seis_error_per_fev'] = []
     diagnostics['prior_cost_per_fev'] = []
-    res = scipy.optimize.minimize(cost_and_gradient_func, x_guess[:,0], method = method, jac = True, options={'maxiter':maxiter})
+    res = scipy.optimize.minimize(cost_and_gradient_func, x_guess[:,0], method = method, jac = True, options={'maxiter':maxiter, 'maxcor':300})
     diagnostics['nit'] = res.nit
     diagnostics['nfev'] = res.nfev
 
