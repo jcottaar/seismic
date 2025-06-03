@@ -405,7 +405,8 @@ def infer_internal_single_parallel(data):
         global model_parallel
         if model_parallel is None:
             model_parallel= dill_load(temp_dir+'parallel.pickle')
-        data.seismogram.load_to_memory()
+        if data.seismogram.data is None:
+            data.seismogram.load_to_memory()
         return_data = model_parallel._infer_single(data)
         return_data.seismogram.unload()
         return return_data
@@ -475,7 +476,7 @@ class Model(BaseClass):
                     test_data.append(d)
        
         for t in test_data:
-            t.unload()
+            t.velocity.unload()
         if self.only_use_cached:
             test_data_inferred = test_data
         else:

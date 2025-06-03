@@ -34,7 +34,6 @@ def cost_and_gradient(x, target, prior, basis_functions, compute_gradient=False)
 
 true_vel = None
 def seis_to_vel(seismogram, velocity_guess, prior, scaling=1e10, maxiter=2000, method='BFGS'):
-    
     basis_functions = prior.basis_functions()
     x_guess = cp.asnumpy(cp.linalg.solve(basis_functions.T@basis_functions, basis_functions.T@(velocity_guess.to_vector())))
     x_guess = x_guess.astype(dtype=kgs.base_type)
@@ -59,7 +58,7 @@ def seis_to_vel(seismogram, velocity_guess, prior, scaling=1e10, maxiter=2000, m
             #print(cost, kgs.rms(basis_functions@cp.array(x[:,None])-true_vel.to_vector()))
             diagnostics['vel_error_per_fev'].append(cp.asnumpy(kgs.rms(basis_functions@xx-true_vel.to_vector())))
         diagnostics['seis_error_per_fev'].append(cp.asnumpy(cost_residual))
-        diagnostics['prior_cost_per_fec'].append(cp.asnumpy(cost_prior))
+        diagnostics['prior_cost_per_fev'].append(cp.asnumpy(cost_prior))
         cost = cost*scaling
         gradient = gradient*scaling
         return cp.asnumpy(cost), cp.asnumpy(gradient[:,0])
@@ -71,7 +70,7 @@ def seis_to_vel(seismogram, velocity_guess, prior, scaling=1e10, maxiter=2000, m
     diagnostics = dict()
     diagnostics['vel_error_per_fev'] = []
     diagnostics['seis_error_per_fev'] = []
-    diagnostics['prior_cost_per_fec'] = []
+    diagnostics['prior_cost_per_fev'] = []
     res = scipy.optimize.minimize(cost_and_gradient_func, x_guess[:,0], method = method, jac = True, options={'maxiter':maxiter})
     diagnostics['nit'] = res.nit
     diagnostics['nfev'] = res.nfev
