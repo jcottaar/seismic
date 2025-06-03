@@ -88,6 +88,10 @@ base_type = np.float64
 base_type_gpu = cp.float64
 base_type_str = 'double'
 
+import git 
+repo = git.Repo(search_parent_directories=True)
+git_commit_id = repo.head.object.hexsha
+
 
 '''
 Helper classes and functions
@@ -465,7 +469,7 @@ class Model(BaseClass):
                 if d.cache_name() in files:
                     cached.append(True)
                     test_data_cached.append(d)
-                    test_data_cached[-1].velocity_guess = dill_load(this_cache_dir+d.cache_name())
+                    test_data_cached[-1].velocity_guess = dill_load(this_cache_dir+d.cache_name())[0]
                 else:
                     cached.append(False)
                     test_data.append(d)
@@ -498,7 +502,7 @@ class Model(BaseClass):
             this_cache_dir = cache_dir+self.cache_name+'/'
             os.makedirs(this_cache_dir,exist_ok=True)
             for d in test_data:
-                dill_save(this_cache_dir+d.cache_name(), d.velocity_guess)
+                dill_save(this_cache_dir+d.cache_name(), (d.velocity_guess, git_commit_id))
                 
         return test_data
 

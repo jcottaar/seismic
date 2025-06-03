@@ -6,7 +6,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 import timm
-from timm.models.convnext import ConvNeXtBlock
 
 from monai.networks.blocks import UpSample, SubpixelUpsample
 
@@ -221,9 +220,9 @@ class UnetDecoder2d(nn.Module):
         decoder_channels: tuple = (256, 128, 64, 32),
         scale_factors: tuple = (2,2,2,2),
         norm_layer: nn.Module = nn.Identity,
-        attention_type: str = None,
-        intermediate_conv: bool = False,
-        upsample_mode: str = "deconv",
+        attention_type: str = "scse",
+        intermediate_conv: bool = True,
+        upsample_mode: str = "pixelshuffle",
     ):
         super().__init__()
         
@@ -296,28 +295,6 @@ class SegmentationHead2d(nn.Module):
 ## Encoder ##
 #############
 
-def _convnext_block_forward(self, x):
-    shortcut = x
-    x = self.conv_dw(x)
-
-    if self.use_conv_mlp:
-        x = self.norm(x)
-        x = self.mlp(x)
-    else:
-        x = self.norm(x)
-        x = x.permute(0, 2, 3, 1)
-        x = x.contiguous()
-        x = self.mlp(x)
-        x = x.permute(0, 3, 1, 2)
-        x = x.contiguous()
-
-    if self.gamma is not None:
-        x = x * self.gamma.reshape(1, -1, 1, 1)
-
-    x = self.drop_path(x) + self.shortcut(shortcut)
-    return x
-
-
 class Net(nn.Module):
     def __init__(
         self,
@@ -348,83 +325,19 @@ class Net(nn.Module):
         )
         
         self._update_stem(backbone)
-        
-        self.replace_activations(self.backbone, log=True)
-        self.replace_norms(self.backbone, log=True)
-        self.replace_forwards(self.backbone, log=True)
 
     def _update_stem(self, backbone):
-        if backbone.startswith("convnext"):
+        m = self.backbone
 
-            # Update stride
-            self.backbone.stem_0.stride = (4, 1)
-            self.backbone.stem_0.padding = (0, 2)
+        m.stem.conv.stride=(4,1)
+        m.stem.conv.padding=(0,4)
+        m.stages_0.downsample = nn.AvgPool2d(kernel_size=(4,1), stride=(4,1))
+        m.stem= nn.Sequential(
+            nn.ReflectionPad2d((0,0,78,78)),
+            m.stem,
+        )
 
-            # Duplicate stem layer (to downsample height)
-            with torch.no_grad():
-                w = self.backbone.stem_0.weight
-                new_conv= nn.Conv2d(w.shape[0], w.shape[0], kernel_size=(4, 4), stride=(4, 1), padding=(0, 1))
-                new_conv.weight.copy_(w.repeat(1, (128//w.shape[1])+1, 1, 1)[:, :new_conv.weight.shape[1], :, :])
-                new_conv.bias.copy_(self.backbone.stem_0.bias)
-
-            self.backbone.stem_0= nn.Sequential(
-                nn.ReflectionPad2d((1,1,80,80)),
-                self.backbone.stem_0,
-                new_conv,
-            )
-
-        else:
-            raise ValueError("Custom striding not implemented.")
         pass
-
-    def replace_activations(self, module, log=False):
-        if log:
-            print(f"Replacing all activations with GELU...")
-        
-        # Apply activations
-        for name, child in module.named_children():
-            if isinstance(child, (
-                nn.ReLU, nn.LeakyReLU, nn.Mish, nn.Sigmoid, 
-                nn.Tanh, nn.Softmax, nn.Hardtanh, nn.ELU, 
-                nn.SELU, nn.PReLU, nn.CELU, nn.GELU, nn.SiLU,
-            )):
-                setattr(module, name, nn.GELU())
-            else:
-                self.replace_activations(child)
-
-    def replace_norms(self, mod, log=False):
-        if log:
-            print(f"Replacing all norms with InstanceNorm...")
-            
-        for name, c in mod.named_children():
-
-            # Get feature size
-            n_feats= None
-            if isinstance(c, (nn.BatchNorm2d, nn.InstanceNorm2d)):
-                n_feats= c.num_features
-            elif isinstance(c, (nn.GroupNorm,)):
-                n_feats= c.num_channels
-            elif isinstance(c, (nn.LayerNorm,)):
-                n_feats= c.normalized_shape[0]
-
-            if n_feats is not None:
-                new = nn.InstanceNorm2d(
-                    n_feats,
-                    affine=True,
-                    )
-                setattr(mod, name, new)
-            else:
-                self.replace_norms(c)
-
-    def replace_forwards(self, mod, log=False):
-        if log:
-            print(f"Replacing forward functions...")
-            
-        for name, c in mod.named_children():
-            if isinstance(c, ConvNeXtBlock):
-                c.forward = MethodType(_convnext_block_forward, c)
-            else:
-                self.replace_forwards(c)
 
         
     def proc_flip(self, x_in):

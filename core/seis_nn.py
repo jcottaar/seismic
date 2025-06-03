@@ -15,19 +15,19 @@ import glob
 def make_default_pretrained():
     models = []
     print(kgs.brendan_model_dir+"*.pth")
-    for f in sorted(glob.glob(kgs.brendan_model_dir+"*.pth")):
+    for f in sorted(glob.glob(kgs.brendan_model_dir+"*caformer*.pt")):
         print("Loading: ", f)
         m = Net(
-            backbone="convnext_small.fb_in22k_ft_in1k",
+            backbone="caformer_b36.sail_in22k_ft_in1k",
             pretrained=False,
         )
         state_dict= torch.load(f, map_location='cpu', weights_only=True)
         state_dict= {k.removeprefix("_orig_mod."):v for k,v in state_dict.items()} # Remove torch.compile() prefix
-    
+
         m.load_state_dict(state_dict)
         models.append(m)
 
-    assert len(models)==2
+    print(len(models))
     
     # Combine
     model = EnsembleModel(models)
@@ -49,13 +49,13 @@ class NeuralNetwork(kgs.Model):
 
     model = 0
 
-    batch_size = 300
+    batch_size = 16
 
     def _train(self, train_data, validation_data):
         raise Exception('Not supported')
 
     def _infer(self,data):
-        cpu,device = kgs.prep_pytorch(0, True, False)
+        cpu,device = kgs.prep_pytorch(0, False, False)
         self.model.to('cpu')
         # if torch.cuda.device_count() > 1:
         #     print(f"Found {torch.cuda.device_count()} GPUs, using DataParallel")           

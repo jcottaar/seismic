@@ -5,8 +5,8 @@ from dataclasses import dataclass, field, fields
 
 @dataclass
 class Prior(kgs.BaseClass):
-    N: int = field(init=True, default=-1) # number of basis functions
-    λ: float = field(init=True, default=1.)
+    N: int = field(init=False, default=-1) # number of basis functions
+    λ: float = field(init=False, default=1.)
 
     def _check_constraints(self):
         assert(self.N>0)

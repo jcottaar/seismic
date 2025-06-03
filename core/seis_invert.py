@@ -28,9 +28,9 @@ def cost_and_gradient(x, target, prior, basis_functions, compute_gradient=False)
 
     # Combine
     if compute_gradient:
-        return cost_prior + cost_residual, gradient_prior + gradient_residual
+        return cost_prior + cost_residual, gradient_prior + gradient_residual, cost_prior, cost_residual
     else:
-        return cost_prior + cost_residual
+        return cost_prior + cost_residual, cost_prior, cost_residual
 
 true_vel = None
 def seis_to_vel(seismogram, velocity_guess, prior, scaling=1e10, maxiter=2000, method='BFGS'):
@@ -54,10 +54,12 @@ def seis_to_vel(seismogram, velocity_guess, prior, scaling=1e10, maxiter=2000, m
 
     def cost_and_gradient_func(x):
         xx = cp.array(x,dtype=kgs.base_type_gpu)[:,None]
-        cost,gradient = cost_and_gradient(xx, target, prior, basis_functions, compute_gradient=True)
+        cost,gradient,cost_prior, cost_residual = cost_and_gradient(xx, target, prior, basis_functions, compute_gradient=True)
         if not true_vel is None:
             #print(cost, kgs.rms(basis_functions@cp.array(x[:,None])-true_vel.to_vector()))
             diagnostics['vel_error_per_fev'].append(cp.asnumpy(kgs.rms(basis_functions@xx-true_vel.to_vector())))
+        diagnostics['seis_error_per_fev'].append(cp.asnumpy(cost_residual))
+        diagnostics['prior_cost_per_fec'].append(cp.asnumpy(cost_prior))
         cost = cost*scaling
         gradient = gradient*scaling
         return cp.asnumpy(cost), cp.asnumpy(gradient[:,0])
