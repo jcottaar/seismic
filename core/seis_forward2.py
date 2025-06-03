@@ -73,6 +73,10 @@ def vel_to_seis(vec, vec_diff=None, vec_adjoint=None, adjoint_on_residual=False)
         v_adjoint[...] = 0
         seis_combined_adjoint[...] = cp.reshape(vec_adjoint, (5,999,70))
 
+    tx, ty = 32, 32
+    bx = (nx + tx - 1) // tx
+    by = (nz + ty - 1) // ty  
+
     
 
     # LOOP
@@ -100,8 +104,7 @@ def vel_to_seis(vec, vec_diff=None, vec_adjoint=None, adjoint_on_residual=False)
                 stream.begin_capture()
                 print('capturing graph')
                 for it in range(0, nt):
-
-                    lapg(p_complete_flat[(it+1)*(nx*nz):], lapg_store_flat[nx*nz*it:])
+        
                     update_p(
                                 (bx, by), (tx, ty),
                                 (
@@ -115,8 +118,6 @@ def vel_to_seis(vec, vec_diff=None, vec_adjoint=None, adjoint_on_residual=False)
                                     src_idx_dev, s_mod
                                 )
                             )
-
-                    
                 graph = stream.end_capture()
                 graph.upload(stream)
                 profile('stream capture')
@@ -338,8 +339,6 @@ def prep_run_adjoint_ref(v_adjoint,temp1_adjoint,temp2_adjoint,alpha_adjoint,v):
 
     return result_adjoint
 
-def lapg(input_flat, output_flat):
-    lapg_kernel((bx, by), (tx, ty),(input_flat, output_flat, nx, nz, c2, c3))
 
 def vel_to_seis_ref(vec, vec_diff=None, vec_adjoint=None, adjoint_on_residual=False):
     # Outputs:
@@ -470,51 +469,7 @@ def vel_to_seis_ref(vec, vec_diff=None, vec_adjoint=None, adjoint_on_residual=Fa
     return result, result_diff, result_adjoint
 
 
-# CUDA kernel for lapg
-kernel_code = r'''
-extern "C" __global__
-void lapg_kernel(
-              const floattype* __restrict__ input,              
-              floattype*             __restrict__ output,
-              const int    nx,
-              const int    ny,
-              const floattype  c2,
-              const floattype  c3) {
-    int ix = blockDim.x * blockIdx.x + threadIdx.x;
-    int iy = blockDim.y * blockIdx.y + threadIdx.y;
-    if (ix >= nx || iy >= ny) return;
-    int idx = iy * nx + ix;
 
-    // Manual wrap at ±1, ±2
-    int ix_p1 = ix+1; if (ix_p1==nx)  ix_p1=0;
-    int ix_m1 = ix-1; if (ix_m1<0)    ix_m1=nx-1;
-    int ix_p2 = ix+2; if (ix_p2>=nx)  ix_p2-=nx;
-    int ix_m2 = ix-2; if (ix_m2<0)     ix_m2+=nx;
-    int iy_p1 = iy+1; if (iy_p1==ny)  iy_p1=0;
-    int iy_m1 = iy-1; if (iy_m1<0)    iy_m1=ny-1;
-    int iy_p2 = iy+2; if (iy_p2>=ny)  iy_p2-=ny;
-    int iy_m2 = iy-2; if (iy_m2<0)     iy_m2+=ny;
-
-    floattype t1;
-    floattype t2;
-    
-    // Collect neighbors (±1)
-    t1 = input[iy  * nx + ix_p1]
-             + input[iy  * nx + ix_m1]
-             + input[iy_p1 * nx + ix  ]
-             + input[iy_m1 * nx + ix  ];
-    // Collect neighbors (±2)
-    t2 = input[iy  * nx + ix_p2]
-             + input[iy  * nx + ix_m2]
-             + input[iy_p2 * nx + ix  ]
-             + input[iy_m2 * nx + ix  ];
-
-    output[idx] = (c2*t1+c3*t2);
-   
-}
-'''
-module = cp.RawModule(code=kernel_code.replace('floattype', kgs.base_type_str))
-lapg_kernel = module.get_function('lapg_kernel')
 
 
 
@@ -541,6 +496,33 @@ void update_p(
     if (ix >= nx || iy >= ny) return;
     int idx = iy * nx + ix;
 
+    // Manual wrap at ±1, ±2
+    int ix_p1 = ix+1; if (ix_p1==nx)  ix_p1=0;
+    int ix_m1 = ix-1; if (ix_m1<0)    ix_m1=nx-1;
+    int ix_p2 = ix+2; if (ix_p2>=nx)  ix_p2-=nx;
+    int ix_m2 = ix-2; if (ix_m2<0)     ix_m2+=nx;
+    int iy_p1 = iy+1; if (iy_p1==ny)  iy_p1=0;
+    int iy_m1 = iy-1; if (iy_m1<0)    iy_m1=ny-1;
+    int iy_p2 = iy+2; if (iy_p2>=ny)  iy_p2-=ny;
+    int iy_m2 = iy-2; if (iy_m2<0)     iy_m2+=ny;
+
+    floattype t1;
+    floattype t2;
+    
+    // Collect neighbors (±1)
+    t1 = pout1[iy  * nx + ix_p1]
+             + pout1[iy  * nx + ix_m1]
+             + pout1[iy_p1 * nx + ix  ]
+             + pout1[iy_m1 * nx + ix  ];
+    // Collect neighbors (±2)
+    t2 = pout1[iy  * nx + ix_p2]
+             + pout1[iy  * nx + ix_m2]
+             + pout1[iy_p2 * nx + ix  ]
+             + pout1[iy_m2 * nx + ix  ];
+
+    floattype lapg_store_local = (c2*t1+c3*t2);
+    lapg_store[idx] = lapg_store_local;
+
     floattype temp1_local = __ldg(&temp1[idx]);
     floattype temp2_local = __ldg(&temp2[idx]);
     floattype pout1_local = __ldg(&pout1[idx]);
@@ -548,7 +530,7 @@ void update_p(
     floattype alpha_local = __ldg(&alpha[idx]);
     floattype out = temp1_local*pout1_local
               - temp2_local*pout_local
-              + alpha_local*lapg_store[idx];
+              + alpha_local*lapg_store_local;
 
     // fused source injection:
     if (idx == src_idx[0]) {
@@ -784,8 +766,3 @@ src_idx_dev = cp.zeros((1,), dtype=cp.int32)
 
 
 igz_dev,igx_dev = cp.array(igz), cp.array(igx)
-
-
-tx, ty = 16, 16
-bx = (nx + tx - 1) // tx
-by = (nz + ty - 1) // ty  
