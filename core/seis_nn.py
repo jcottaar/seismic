@@ -27,7 +27,7 @@ def _make_default_pretrained():
         m.load_state_dict(state_dict)
         models.append(m)
 
-    print(len(models))
+    assert len(models)==1
     
     # Combine
     model = EnsembleModel(models)

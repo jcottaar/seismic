@@ -2,6 +2,7 @@ import numpy as np
 import cupy as cp
 import kaggle_support as kgs
 from dataclasses import dataclass, field, fields
+import matplotlib.pyplot as plt
 
 @dataclass
 class Prior(kgs.BaseClass):
@@ -80,13 +81,18 @@ class RowTotalVariation(Prior):
 
 @dataclass
 class SquaredExponential(Prior):
-    length_scale = 20.
-    noise = 100.
-    sigma = 1000.
-    sigma_mean = 5000.
-    sigma_slope = 30.
+    length_scale = np.log(32.4)
+    noise = 0.1
+    sigma = 183.4
+    sigma_mean = 520
+    sigma_slope = 31.4
+    #svd_cutoff = 0.11
     K = 0
     P = 0
+    
+
+    compute_P = True
+    transform = False
 
     def __post_init__(self):
         # Mark the object as frozen after initialization        
@@ -109,11 +115,24 @@ class SquaredExponential(Prior):
         #K = (self.noise**2)*cp.eye(4900)
         K = K.astype(kgs.base_type_gpu)        
         self.K = K
-        #self.P = cp.linalg.inv(K)
+        #plt.figure()
+        U,s,_=cp.linalg.svd(self.K,compute_uv=True).get()
+        #plt.semilogy(xx)
+        #plt.title(xx[0]/xx[-1])
+        plt.pause(0.001)
+        if self.compute_P:
+            self.P = cp.linalg.inv(K)
 
         #import cupyx.scipy.sparse
         #basis_vectors = cupyx.scipy.sparse.identity(4901, dtype=kgs.base_type_gpu)
+        
+            
         basis_vectors = cp.eye(4901, dtype=kgs.base_type_gpu)
+        if transform:
+            raise 'add min_vel'
+            basis_vectors = U*cp.diag(cp.sqrt(s))
+            self.K = cp.eye(4900)
+            self.P = self.K
         return basis_vectors
 
     def _compute_cost_and_gradient(self, x, compute_gradient):

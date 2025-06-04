@@ -61,7 +61,7 @@ match env:
         code_dir = '/kaggle/input/my-seismic-library/' 
         cache_dir = '/kaggle/working/cache/'
         output_dir = '/kaggle/working/'
-        brendan_model_dir = '/kaggle/input/simple-further-finetuned-bartley-open-models/'
+        brendan_model_dir = '/kaggle/input/openfwi-preprocessed-72x72/models_1000x70/'
     case 'vast':
         data_dir = '/seismic/data/'
         temp_dir = '/seismic/temp/'   
@@ -93,9 +93,12 @@ base_type = np.float64
 base_type_gpu = cp.float64
 base_type_str = 'double'
 
-import git 
-repo = git.Repo(search_parent_directories=True)
-git_commit_id = repo.head.object.hexsha
+if not env=='kaggle':
+    import git 
+    repo = git.Repo(search_parent_directories=True)
+    git_commit_id = repo.head.object.hexsha
+else:
+    git_commit_id = 'kaggle'
 
 
 '''
@@ -481,7 +484,8 @@ class Model(BaseClass):
                     test_data.append(d)
        
         for t in test_data:
-            t.velocity.unload()
+            if not t.velocity is None:
+                t.velocity.unload()
         if self.only_use_cached:
             test_data_inferred = test_data
         else:
@@ -583,31 +587,33 @@ def score_metric(data, show_diagnostics=True):
 
     return score,score_per_family,res_all
 
-def write_submission_file(data, output_file = output_dir+'submission.csv'):
-    res = dict()
-    res['oid_ypos'] = []
-    x_vals = np.arange(1,70,2)
-    x_vals_names = [ 'x_'+str(x) for x in x_vals ]
-    for xn in x_vals_names:
-        res[xn] = []
-    for ii,d in enumerate(data):
-        if ii%100==0:print(ii)
-        name = os.path.basename(d.seismogram.filename[:-4])+'_y_'
-        data = np.round(d.velocity_guess.data).astype(int)
-        for y in np.arange(70):
-            res['oid_ypos'].append(name+str(y))
-            for x,xn in zip(x_vals, x_vals_names):
-                res[xn].append(data[y,x])
-    print('x')
-    df = pd.DataFrame(res)
-    print('xx')
-    df.to_csv(output_file, index=False)
+# def write_submission_file(data, output_file = output_dir+'submission.csv'):
+#     res = dict()
+#     res['oid_ypos'] = []
+#     x_vals = np.arange(1,70,2)
+#     x_vals_names = [ 'x_'+str(x) for x in x_vals ]
+#     for xn in x_vals_names:
+#         res[xn] = []
+#     for ii,d in enumerate(data):
+#         if ii%100==0:print(ii)
+#         name = os.path.basename(d.seismogram.filename[:-4])+'_y_'
+#         data = np.round(d.velocity_guess.data).astype(int)
+#         for y in np.arange(70):
+#             res['oid_ypos'].append(name+str(y))
+#             for x,xn in zip(x_vals, x_vals_names):
+#                 res[xn].append(data[y,x])
+#     print('x')
+#     df = pd.DataFrame(res)
+#     print('xx')
+#     df.to_csv(output_file, index=False)
             
-def write_submission_file(data, output_file = output_dir+'submission.csv'):
+def write_submission_file(data, output_file = output_dir+'submission.csv', obfuscate=0.):
     # precompute x‐positions and header
     x_vals = np.arange(1, 70, 2)
     x_names = [f"x_{x}" for x in x_vals]
     header = ["oid_ypos"] + x_names
+
+    r=np.random.default_rng(seed=0)
 
     with open(output_file, "w", newline="") as f:
         writer = csv.writer(f)
@@ -620,7 +626,7 @@ def write_submission_file(data, output_file = output_dir+'submission.csv'):
             name_prefix = f"{base}_y_"
 
             # grab and round your 70×70 numpy array
-            arr = d.velocity_guess.data.astype(np.float32)
+            arr = d.velocity_guess.data.astype(np.float32) + (r.uniform(size=d.velocity_guess.data.shape)>0.5)*obfuscate
 
             # slice out only the 35 columns you care about
             sub = arr[:, x_vals]  # shape = (70, 35)

@@ -27,7 +27,7 @@ class ModelOnlyFlatVel(kgs.Model):
 
 def default_model():
     model = kgs.ChainedModel()    
-    model.models.append(seis_nn.make_default_pretrained())
+    model.models.append(seis_nn.default_pretrained)
     model.models.append(ModelOnlyFlatVel(model=seis_invert.InversionModel(prior=seis_prior.RowTotalVariation())))
     model.models[-1].model.cache_name = 'FlatVel'
     model.models[-1].model.write_cache = True
