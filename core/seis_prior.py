@@ -81,7 +81,7 @@ class RowTotalVariation(Prior):
 
 @dataclass
 class SquaredExponential(Prior):
-    length_scale = np.log(32.4)
+    length_scale = 3.748
     noise = 0.1
     sigma = 183.4
     sigma_mean = 520
@@ -121,10 +121,10 @@ class SquaredExponential(Prior):
             K = K.astype(kgs.base_type_gpu)        
             self.K = K
             #plt.figure()
-            U,s,_=cp.linalg.svd(self.K,compute_uv=True)
+            
             #plt.semilogy(xx)
             #plt.title(xx[0]/xx[-1])
-            plt.pause(0.001)
+            #plt.pause(0.001)
             if self.compute_P:
                 self.P = cp.linalg.inv(K)
     
@@ -134,6 +134,7 @@ class SquaredExponential(Prior):
                 
             self.basis_vectors = cp.eye(4901, dtype=kgs.base_type_gpu)
             if self.transform:
+                U,s,_=cp.linalg.svd(self.K,compute_uv=True)
                 to_keep = s>self.svd_cutoff
                 self.basis_vectors = (U[:,to_keep]@cp.diag(cp.sqrt(s[to_keep])))
                 self.basis_vectors = cp.pad(self.basis_vectors, ((0, 1), (0, 1)), mode='constant', constant_values=0)
@@ -143,7 +144,6 @@ class SquaredExponential(Prior):
 
             self.prepped=True
         self.N = self.basis_vectors.shape[1]
-        print(self.basis_vectors.shape)
         return self.basis_vectors
 
     def _compute_cost_and_gradient(self, x, compute_gradient):

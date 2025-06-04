@@ -52,25 +52,28 @@ match env:
         data_dir = 'f:/seismic/data/'
         temp_dir = 'f:/seismic/temp/'             
         code_dir = 'f:/seismic/code/core/' 
-        cache_dir = 'f:/seismic/cache/'
+        cache_dir_write = 'f:/seismic/cache/'
+        cache_dir_read = cache_dir_write
         output_dir = temp_dir
         brendan_model_dir = 'F:/seismic/models/brendan/'
     case 'kaggle':
         data_dir = '/kaggle/input/waveform-inversion/'
         temp_dir = '/temp/'             
         code_dir = '/kaggle/input/my-seismic-library/' 
-        cache_dir = '/kaggle/input/seismic-cache/'
+        cache_dir_write = '/kaggle/temp/cache/'
+        cache_dir_read = '/kaggle/input/seismic-cache/'
         output_dir = '/kaggle/working/'
         brendan_model_dir = '/kaggle/input/openfwi-preprocessed-72x72/models_1000x70/'
     case 'vast':
         data_dir = '/seismic/data/'
         temp_dir = '/seismic/temp/'   
         code_dir = '/seismic/code/core/'
-        cache_dir = '/seismic/cache/'
+        cache_dir_write = '/seismic/cache/'
+        cache_dir_read = cache_dir_write
         output_dir = temp_dir
         brendan_model_dir = '/seismic/models/brendan/'
 os.makedirs(temp_dir, exist_ok=True)
-os.makedirs(cache_dir, exist_ok=True)
+os.makedirs(cache_dir_write, exist_ok=True)
 
 # How many workers is optimal for parallel pool?
 def recommend_n_workers():
@@ -245,13 +248,13 @@ def upload_kaggle_dataset(source):
     subprocess.run('kaggle datasets version -p ' + source + ' -m ''Update''', shell=True)
 
 def download_cache():
-    remove_and_make_dir(cache_dir)
-    download_kaggle_dataset('seismic-cache', cache_dir)
+    remove_and_make_dir(cache_dir_write)
+    download_kaggle_dataset('seismic-cache', cache_dir_write)
 
 def upload_cache():
     remove_and_make_dir(temp_dir+'/upload_folder')
     #shutil.make_archive(f'{temp_dir}/upload_folder/cache', 'zip', root_dir = cache_dir)
-    subprocess.run(f"kaggle datasets version -p {cache_dir}/ --dir-mode tar -m '{git_commit_id}'")
+    subprocess.run(f"kaggle datasets version -p {cache_dir_write}/ --dir-mode tar -m '{git_commit_id}'")
 
 def rms(array):
     return np.sqrt(np.mean(array**2))
@@ -428,7 +431,7 @@ def infer_internal_single_parallel(data):
         return_data = model_parallel._infer_single(data)
         return_data.seismogram.unload()
         if model_parallel.write_cache and not return_data.do_not_cache: # will be done later too, but in case we error out later...
-            this_cache_dir = cache_dir+model_parallel.cache_name+'/'
+            this_cache_dir = cache_dir_write+model_parallel.cache_name+'/'
             os.makedirs(this_cache_dir,exist_ok=True)
             dill_save(this_cache_dir+return_data.cache_name(), return_data.velocity_guess)
         return return_data
@@ -482,7 +485,7 @@ class Model(BaseClass):
         test_data = copy.deepcopy(test_data)
 
         if self.read_cache:
-            this_cache_dir = cache_dir+self.cache_name+'/'
+            this_cache_dir = cache_dir_read+self.cache_name+'/'
             files = set([os.path.basename(x) for x in glob.glob(this_cache_dir+'/*')])
             cached = []
             test_data_cached = []
@@ -523,7 +526,7 @@ class Model(BaseClass):
             t.check_constraints()
 
         if self.write_cache:
-            this_cache_dir = cache_dir+self.cache_name+'/'
+            this_cache_dir = cache_dir_write+self.cache_name+'/'
             os.makedirs(this_cache_dir,exist_ok=True)
             for d in test_data:
                 if not d.do_not_cache:
@@ -555,7 +558,7 @@ class Model(BaseClass):
                 x = self._infer_single(x)
                 x.seismogram.unload()       
                 if self.write_cache and not x.do_not_cache: # will be done later too, but in case we error out later...
-                    this_cache_dir = cache_dir+self.cache_name+'/'
+                    this_cache_dir = cache_dir_write+self.cache_name+'/'
                     os.makedirs(this_cache_dir,exist_ok=True)
                     dill_save(this_cache_dir+x.cache_name(), x.velocity_guess)
                 result.append(x)
