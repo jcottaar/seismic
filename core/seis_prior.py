@@ -84,6 +84,7 @@ class SquaredExponential(Prior):
     noise = 100.
     sigma = 1000.
     sigma_mean = 5000.
+    sigma_slope = 30.
     K = 0
     P = 0
 
@@ -95,17 +96,20 @@ class SquaredExponential(Prior):
 
     def _basis_functions(self):
         
-        x = cp.arange(0,70)[:,None]+cp.zeros( (1,70) )
-        y = cp.arange(0,70)[None,:]+cp.zeros( (70,1) )
+        y = cp.arange(-35,35)[:,None]+cp.zeros( (1,70) )
+        x = cp.arange(-35,35)[None,:]+cp.zeros( (70,1) )
         x = x.flatten()[:,None]
         y = y.flatten()[:,None]
         dist_matrix = cp.sqrt((x-x.T)**2+(y-y.T)**2)        
-        K = self.sigma**2*cp.exp(-dist_matrix**2/(2*(self.length_scale)**2))        
+        K = (self.sigma**2)*cp.exp(-dist_matrix**2/(2*(self.length_scale)**2))        
         K = K+self.sigma_mean**2
-        K = K+self.noise**2*cp.eye(4900)
-        K = K.astype(kgs.base_type_gpu)
+        K = K+(self.sigma_slope**2)*(y@y.T)
+        K = K+(self.noise**2)*cp.eye(4900)
+        #print(self.sigma, self.sigma_mean, self.sigma_slope, self.noise)
+        #K = (self.noise**2)*cp.eye(4900)
+        K = K.astype(kgs.base_type_gpu)        
         self.K = K
-        self.P = cp.linalg.inv(K)
+        #self.P = cp.linalg.inv(K)
 
         #import cupyx.scipy.sparse
         #basis_vectors = cupyx.scipy.sparse.identity(4901, dtype=kgs.base_type_gpu)

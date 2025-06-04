@@ -26,7 +26,6 @@ import cv2
 import h5py
 import time
 import sklearn
-import skimage
 import shutil
 import subprocess
 import inspect
@@ -43,7 +42,6 @@ elif os.path.isdir('/kaggle/working/'):
     env = 'kaggle'
 else:
     env = 'vast';
-assert not env=='vast'
 
 profiling = False
 debugging_mode = 2
@@ -64,6 +62,13 @@ match env:
         cache_dir = '/kaggle/working/cache/'
         output_dir = '/kaggle/working/'
         brendan_model_dir = '/kaggle/input/simple-further-finetuned-bartley-open-models/'
+    case 'vast':
+        data_dir = '/seismic/data/'
+        temp_dir = '/seismic/temp/'   
+        code_dir = '/seismic/code/core/'
+        cache_dir = '/seismic/cache/'
+        output_dir = temp_dir
+        brendan_model_dir = '/seismic/models/brendan/'
 os.makedirs(temp_dir, exist_ok=True)
 os.makedirs(cache_dir, exist_ok=True)
 

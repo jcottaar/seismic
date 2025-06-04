@@ -66,7 +66,7 @@ def do_diagnostics_run(data, model, do_which_list, param_func, param_values, par
                     vel_start = vel_true_np
                 case 2:
                     seis_target = seis_given
-                    vel_start = vel_guess
+                    vel_start = vel_guess                    
             data_in = copy.deepcopy(data)
             data_in.velocity_guess = vel_start
             data_in.seismogram = seis_target
