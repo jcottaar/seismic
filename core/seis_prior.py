@@ -86,13 +86,16 @@ class SquaredExponential(Prior):
     sigma = 183.4
     sigma_mean = 520
     sigma_slope = 31.4
-    #svd_cutoff = 0.11
-    K = 0
-    P = 0
+    svd_cutoff = 0.
     
 
     compute_P = True
     transform = False
+
+    K = 0
+    P = 0
+    basis_vectors=0
+    prepped=False
 
     def __post_init__(self):
         # Mark the object as frozen after initialization        
@@ -101,39 +104,47 @@ class SquaredExponential(Prior):
         self.λ = 1e-8
 
     def _basis_functions(self):
-        
-        y = cp.arange(-35,35)[:,None]+cp.zeros( (1,70) )
-        x = cp.arange(-35,35)[None,:]+cp.zeros( (70,1) )
-        x = x.flatten()[:,None]
-        y = y.flatten()[:,None]
-        dist_matrix = cp.sqrt((x-x.T)**2+(y-y.T)**2)        
-        K = (self.sigma**2)*cp.exp(-dist_matrix**2/(2*(self.length_scale)**2))        
-        K = K+self.sigma_mean**2
-        K = K+(self.sigma_slope**2)*(y@y.T)
-        K = K+(self.noise**2)*cp.eye(4900)
-        #print(self.sigma, self.sigma_mean, self.sigma_slope, self.noise)
-        #K = (self.noise**2)*cp.eye(4900)
-        K = K.astype(kgs.base_type_gpu)        
-        self.K = K
-        #plt.figure()
-        U,s,_=cp.linalg.svd(self.K,compute_uv=True).get()
-        #plt.semilogy(xx)
-        #plt.title(xx[0]/xx[-1])
-        plt.pause(0.001)
-        if self.compute_P:
-            self.P = cp.linalg.inv(K)
 
-        #import cupyx.scipy.sparse
-        #basis_vectors = cupyx.scipy.sparse.identity(4901, dtype=kgs.base_type_gpu)
+        if self.prepped==False:
         
+            y = cp.arange(-35,35)[:,None]+cp.zeros( (1,70) )
+            x = cp.arange(-35,35)[None,:]+cp.zeros( (70,1) )
+            x = x.flatten()[:,None]
+            y = y.flatten()[:,None]
+            dist_matrix = cp.sqrt((x-x.T)**2+(y-y.T)**2)        
+            K = (self.sigma**2)*cp.exp(-dist_matrix**2/(2*(self.length_scale)**2))        
+            K = K+self.sigma_mean**2
+            K = K+(self.sigma_slope**2)*(y@y.T)
+            K = K+(self.noise**2)*cp.eye(4900)
+            #print(self.sigma, self.sigma_mean, self.sigma_slope, self.noise)
+            #K = (self.noise**2)*cp.eye(4900)
+            K = K.astype(kgs.base_type_gpu)        
+            self.K = K
+            #plt.figure()
+            U,s,_=cp.linalg.svd(self.K,compute_uv=True)
+            #plt.semilogy(xx)
+            #plt.title(xx[0]/xx[-1])
+            plt.pause(0.001)
+            if self.compute_P:
+                self.P = cp.linalg.inv(K)
+    
+            #import cupyx.scipy.sparse
+            #basis_vectors = cupyx.scipy.sparse.identity(4901, dtype=kgs.base_type_gpu)
             
-        basis_vectors = cp.eye(4901, dtype=kgs.base_type_gpu)
-        if transform:
-            raise 'add min_vel'
-            basis_vectors = U*cp.diag(cp.sqrt(s))
-            self.K = cp.eye(4900)
-            self.P = self.K
-        return basis_vectors
+                
+            self.basis_vectors = cp.eye(4901, dtype=kgs.base_type_gpu)
+            if self.transform:
+                to_keep = s>self.svd_cutoff
+                self.basis_vectors = (U[:,to_keep]@cp.diag(cp.sqrt(s[to_keep])))
+                self.basis_vectors = cp.pad(self.basis_vectors, ((0, 1), (0, 1)), mode='constant', constant_values=0)
+                self.basis_vectors[-1, -1] = 1.
+                self.K = cp.eye(self.basis_vectors.shape[1]-1)
+                self.P = self.K
+
+            self.prepped=True
+        self.N = self.basis_vectors.shape[1]
+        print(self.basis_vectors.shape)
+        return self.basis_vectors
 
     def _compute_cost_and_gradient(self, x, compute_gradient):
 

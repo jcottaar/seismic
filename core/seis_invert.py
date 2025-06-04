@@ -76,7 +76,10 @@ def seis_to_vel(seismogram, velocity_guess, prior, scaling=1e10, maxiter=2000, m
     diagnostics['vel_error_per_fev'] = []
     diagnostics['seis_error_per_fev'] = []
     diagnostics['prior_cost_per_fev'] = []
-    res = scipy.optimize.minimize(cost_and_gradient_func, x_guess[:,0], method = method, jac = True, options={'maxiter':maxiter, 'maxcor':300})
+    if method=='BFGS':
+        res = scipy.optimize.minimize(cost_and_gradient_func, x_guess[:,0], method = method, jac = True, options={'maxiter':maxiter})
+    else:
+        res = scipy.optimize.minimize(cost_and_gradient_func, x_guess[:,0], method = method, jac = True, options={'maxiter':maxiter, 'maxcor':1000})
     diagnostics['nit'] = res.nit
     diagnostics['nfev'] = res.nfev
 

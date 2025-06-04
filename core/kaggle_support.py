@@ -59,7 +59,7 @@ match env:
         data_dir = '/kaggle/input/waveform-inversion/'
         temp_dir = '/temp/'             
         code_dir = '/kaggle/input/my-seismic-library/' 
-        cache_dir = '/kaggle/working/cache/'
+        cache_dir = '/kaggle/input/seismic-cache/'
         output_dir = '/kaggle/working/'
         brendan_model_dir = '/kaggle/input/openfwi-preprocessed-72x72/models_1000x70/'
     case 'vast':
@@ -244,6 +244,15 @@ def upload_kaggle_dataset(source):
         source=source.replace('/', '\\')
     subprocess.run('kaggle datasets version -p ' + source + ' -m ''Update''', shell=True)
 
+def download_cache():
+    remove_and_make_dir(cache_dir)
+    download_kaggle_dataset('seismic-cache', cache_dir)
+
+def upload_cache():
+    remove_and_make_dir(temp_dir+'/upload_folder')
+    #shutil.make_archive(f'{temp_dir}/upload_folder/cache', 'zip', root_dir = cache_dir)
+    subprocess.run(f"kaggle datasets version -p {cache_dir}/ --dir-mode tar -m '{git_commit_id}'")
+
 def rms(array):
     return np.sqrt(np.mean(array**2))
 
@@ -323,6 +332,7 @@ class Data(BaseClass):
     velocity_guess: Velocity = field(init=True, default=None )    
 
     diagnostics: dict = field(init=True, default_factory=dict)
+    do_not_cache: bool = field(init=True, default=False)
 
     def _check_constraints(self):
         self.seismogram.check_constraints()
@@ -417,6 +427,10 @@ def infer_internal_single_parallel(data):
             data.seismogram.load_to_memory()
         return_data = model_parallel._infer_single(data)
         return_data.seismogram.unload()
+        if model_parallel.write_cache and not return_data.do_not_cache: # will be done later too, but in case we error out later...
+            this_cache_dir = cache_dir+model_parallel.cache_name+'/'
+            os.makedirs(this_cache_dir,exist_ok=True)
+            dill_save(this_cache_dir+return_data.cache_name(), return_data.velocity_guess)
         return return_data
     except Exception as err:
         import traceback
@@ -512,7 +526,8 @@ class Model(BaseClass):
             this_cache_dir = cache_dir+self.cache_name+'/'
             os.makedirs(this_cache_dir,exist_ok=True)
             for d in test_data:
-                dill_save(this_cache_dir+d.cache_name(), (d.velocity_guess, git_commit_id))
+                if not d.do_not_cache:
+                    dill_save(this_cache_dir+d.cache_name(), (d.velocity_guess, git_commit_id))
                 
         return test_data
 
@@ -533,21 +548,17 @@ class Model(BaseClass):
                     ))
         else:
             result = []
-            for xx in test_data:     
+            for xx in tqdm(test_data):     
                 x = copy.deepcopy(xx)  
                 if x.seismogram.data is None:
                     x.seismogram.load_to_memory()
                 x = self._infer_single(x)
                 x.seismogram.unload()       
-                if self.write_cache: # will be done later too, but in case we error out later...
+                if self.write_cache and not x.do_not_cache: # will be done later too, but in case we error out later...
                     this_cache_dir = cache_dir+self.cache_name+'/'
                     os.makedirs(this_cache_dir,exist_ok=True)
                     dill_save(this_cache_dir+x.cache_name(), x.velocity_guess)
                 result.append(x)
-        result = self._post_process(result)
-        return result
-
-    def _post_process(self, result):
         return result
 
 @dataclass
@@ -627,6 +638,7 @@ def write_submission_file(data, output_file = output_dir+'submission.csv', obfus
 
             # grab and round your 70×70 numpy array
             arr = d.velocity_guess.data.astype(np.float32) + (r.uniform(size=d.velocity_guess.data.shape)>0.5)*obfuscate
+            arr = np.round(arr).astype(np.int32)
 
             # slice out only the 35 columns you care about
             sub = arr[:, x_vals]  # shape = (70, 35)
