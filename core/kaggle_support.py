@@ -491,7 +491,7 @@ class Model(BaseClass):
             test_data_cached = []
             tt = copy.deepcopy(test_data)
             test_data = []
-            for d in tt:
+            for d in tqdm(tt):
                 if d.cache_name() in files:
                     cached.append(True)
                     test_data_cached.append(d)
