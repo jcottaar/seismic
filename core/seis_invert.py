@@ -92,7 +92,7 @@ def seis_to_vel(seismogram, velocity_guess, prior, scaling=1e10, maxiter=2000, m
 
     return result, diagnostics
 
-def seis_to_vel_torch(seismogram, velocity_guess, prior, scaling=1e10, maxiter=2000, method='BFGS'):
+def seis_to_vel_torch(seismogram, velocity_guess, prior, scaling=1e10, maxiter=2000, history_size=1000):
     basis_functions = prior.basis_functions()
     x_guess = cp.asnumpy(cp.linalg.solve(cp.array(basis_functions.T@basis_functions), basis_functions.T@(velocity_guess.to_vector())))
     x_guess = x_guess.astype(dtype=kgs.base_type)
@@ -138,7 +138,7 @@ def seis_to_vel_torch(seismogram, velocity_guess, prior, scaling=1e10, maxiter=2
         max_iter=maxiter,
         tolerance_grad=1e-7,
         tolerance_change=1e-9,
-        history_size=1000,
+        history_size=history_size,
         line_search_fn="strong_wolfe"
     )
     
@@ -177,8 +177,8 @@ def seis_to_vel_torch(seismogram, velocity_guess, prior, scaling=1e10, maxiter=2
 class InversionModel(kgs.Model):
     prior: seis_prior.Prior = field(init=True, default_factory = seis_prior.RowTotalVariation)
     maxiter = 2000
+    history_size = 1000
     scaling = 1e15
-    method = 'BFGS'
 
     def _infer_single(self,data):
         global true_vel
@@ -189,7 +189,7 @@ class InversionModel(kgs.Model):
             true_vel = None
         data.velocity_guess.data = cp.array(data.velocity_guess.data)
         data.velocity_guess.min_vel = cp.array(data.velocity_guess.min_vel)
-        data.velocity_guess, diagnostics = seis_to_vel_torch(data.seismogram, data.velocity_guess, self.prior, scaling=self.scaling, maxiter=self.maxiter, method=self.method)
+        data.velocity_guess, diagnostics = seis_to_vel_torch(data.seismogram, data.velocity_guess, self.prior, scaling=self.scaling, maxiter=self.maxiter, history_size=self.history_size)
         data.velocity_guess.data = cp.asnumpy(data.velocity_guess.data)
         data.velocity_guess.min_vel = cp.asnumpy(data.velocity_guess.min_vel)
 
