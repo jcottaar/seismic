@@ -105,6 +105,7 @@ class SquaredExponential(Prior):
 
     def _basis_functions(self):
 
+        print(self.prepped, self.transform)
         if self.prepped==False:
         
             y = cp.arange(-35,35)[:,None]+cp.zeros( (1,70) )
@@ -144,6 +145,7 @@ class SquaredExponential(Prior):
 
             self.prepped=True
         self.N = self.basis_vectors.shape[1]
+        print(self.basis_vectors.shape)
         return self.basis_vectors
 
     def _compute_cost_and_gradient(self, x, compute_gradient):

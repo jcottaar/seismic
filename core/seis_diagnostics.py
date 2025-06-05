@@ -108,6 +108,8 @@ def do_diagnostics_run(data, model, do_which_list, param_func, param_values, par
             y_vals = [r[i_result].diagnostics['seis_to_vel'][plot_fields[i_plot]][-1] for r in results]
             plt.semilogy(param_values, y_vals)  
     plt.legend(names)
+
+    return results
             
 
     

@@ -255,7 +255,7 @@ def download_cache():
 def upload_cache():
     remove_and_make_dir(temp_dir+'/upload_folder')
     #shutil.make_archive(f'{temp_dir}/upload_folder/cache', 'zip', root_dir = cache_dir)
-    subprocess.run(f"kaggle datasets version -p {cache_dir_write}/ --dir-mode tar -m '{git_commit_id}'")
+    subprocess.run(f"kaggle datasets version -p {cache_dir_write}/ --dir-mode tar -m '{git_commit_id}'", shell=True)
 
 def rms(array):
     return np.sqrt(np.mean(array**2))
@@ -492,7 +492,7 @@ class Model(BaseClass):
             test_data_cached = []
             tt = copy.deepcopy(test_data)
             test_data = []
-            for d in tqdm(tt):
+            for d in tqdm(tt, desc="Importing cache", disable=len(tt)<=1):
                 if d.cache_name() in files:
                     cached.append(True)
                     test_data_cached.append(d)
@@ -547,11 +547,11 @@ class Model(BaseClass):
                 result = list(tqdm(
                     p.imap(infer_internal_single_parallel, test_data),
                     total=len(test_data),
-                    desc="Processing"
+                    desc="Processing in parallel"
                     ))
         else:
             result = []
-            for xx in tqdm(test_data):     
+            for xx in tqdm(test_data, desc="Inferring", disable = len(test_data)<=1):     
                 x = copy.deepcopy(xx)  
                 if x.seismogram.data is None:
                     x.seismogram.load_to_memory()
