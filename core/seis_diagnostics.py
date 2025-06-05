@@ -8,6 +8,7 @@ import seis_nn
 import scipy
 import copy
 import matplotlib.pyplot as plt
+import time
 from dataclasses import dataclass, field, fields
 
 def do_diagnostics_run(data, model, do_which_list, param_func, param_values, param_name):

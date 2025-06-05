@@ -81,7 +81,7 @@ class RowTotalVariation(Prior):
 
 @dataclass
 class SquaredExponential(Prior):
-    length_scale = 3.748
+    length_scale = np.log(32.4)
     noise = 0.1
     sigma = 183.4
     sigma_mean = 520

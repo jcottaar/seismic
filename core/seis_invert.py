@@ -5,6 +5,7 @@ import seis_forward2
 import seis_prior
 import scipy
 import copy
+import time
 from dataclasses import dataclass, field, fields
 print('maxcor')
 
@@ -37,7 +38,7 @@ def cost_and_gradient(x, target, prior, basis_functions, compute_gradient=False)
         return cost_prior + cost_residual, cost_prior, cost_residual
 
 true_vel = None
-
+last_t = time.time()
 def seis_to_vel(seismogram, velocity_guess, prior, scaling=1e10, maxiter=2000, method='BFGS'):
     basis_functions = prior.basis_functions()
     x_guess = cp.asnumpy(cp.linalg.solve(cp.array(basis_functions.T@basis_functions), basis_functions.T@(velocity_guess.to_vector())))
@@ -57,6 +58,8 @@ def seis_to_vel(seismogram, velocity_guess, prior, scaling=1e10, maxiter=2000, m
     #     return cp.asnumpy(xx[:,0])
 
     def cost_and_gradient_func(x):
+        #global last_t
+        #print('overhead: ', time.time()-last_t)
         xx = cp.array(x,dtype=kgs.base_type_gpu)[:,None]
         cost,gradient,cost_prior, cost_residual = cost_and_gradient(xx, target, prior, basis_functions, compute_gradient=True)
         if not true_vel is None:
@@ -66,6 +69,7 @@ def seis_to_vel(seismogram, velocity_guess, prior, scaling=1e10, maxiter=2000, m
         diagnostics['prior_cost_per_fev'].append(cp.asnumpy(cost_prior))
         cost = cost*scaling
         gradient = gradient*scaling
+        #last_t = time.time()
         return cp.asnumpy(cost), cp.asnumpy(gradient[:,0])
 
     #cost_func = lambda x: 
@@ -88,6 +92,87 @@ def seis_to_vel(seismogram, velocity_guess, prior, scaling=1e10, maxiter=2000, m
 
     return result, diagnostics
 
+def seis_to_vel_torch(seismogram, velocity_guess, prior, scaling=1e10, maxiter=2000, method='BFGS'):
+    basis_functions = prior.basis_functions()
+    x_guess = cp.asnumpy(cp.linalg.solve(cp.array(basis_functions.T@basis_functions), basis_functions.T@(velocity_guess.to_vector())))
+    x_guess = x_guess.astype(dtype=kgs.base_type)
+    target = seismogram.to_vector()
+
+    def cost_and_gradient_func(x):
+        #global last_t
+        #print('overhead: ', time.time()-last_t)
+        xx = cp.array(x,dtype=kgs.base_type_gpu)[:,None]
+        cost,gradient,cost_prior, cost_residual = cost_and_gradient(xx, target, prior, basis_functions, compute_gradient=True)
+        if not true_vel is None:
+            #print(cost, kgs.rms(basis_functions@cp.array(x[:,None])-true_vel.to_vector()))
+            diagnostics['vel_error_per_fev'].append(cp.asnumpy(kgs.rms(basis_functions@xx-true_vel.to_vector())))
+        diagnostics['seis_error_per_fev'].append(cp.asnumpy(cost_residual))
+        diagnostics['prior_cost_per_fev'].append(cp.asnumpy(cost_prior))
+        cost = cost*scaling
+        gradient = gradient*scaling
+        #last_t = time.time()
+        return cp.asnumpy(cost), cp.asnumpy(gradient[:,0])
+
+    #cost_func = lambda x: 
+    #gradient_func = lambda x: 
+
+    #res = scipy.optimize.minimize(cost_func, x_guess[:,0], method = 'L-BFGS-B', jac = gradient_func, options={'maxiter':maxiter})
+    diagnostics = dict()
+    diagnostics['vel_error_per_fev'] = []
+    diagnostics['seis_error_per_fev'] = []
+    diagnostics['prior_cost_per_fev'] = []
+
+    # Torch LBFGS implementation
+    import torch
+    import numpy as np
+    
+    # Initialize the parameter to optimize
+    # Assume x_guess is a NumPy array of shape (n,1) or similar
+    x0 = np.asarray(x_guess[:,0], dtype=np.float64)
+    param = torch.nn.Parameter(torch.from_numpy(x0))
+    
+    # Create the LBFGS optimizer
+    optimizer = torch.optim.LBFGS(
+        [param],
+        lr=1.0,
+        max_iter=maxiter,
+        tolerance_grad=1e-7,
+        tolerance_change=1e-9,
+        history_size=1000,
+        line_search_fn="strong_wolfe"
+    )
+    
+    # Initialize diagnostics counters
+    diagnostics['nfev'] = 0
+    
+    def closure():
+        optimizer.zero_grad()
+        # Convert the parameter to NumPy for cost_and_gradient_func
+        x_np = param.detach().cpu().numpy()
+        # Compute cost and gradient using the existing function
+        cost, grad = cost_and_gradient_func(x_np)
+        # Update function evaluation count
+        diagnostics['nfev'] += 1
+        # Convert gradient back to torch and assign to param.grad
+        grad_torch = torch.from_numpy(grad.astype(np.float64)).to(param.dtype)
+        param.grad = grad_torch
+        # Return cost as a torch Tensor
+        return torch.tensor(cost, dtype=param.dtype)
+    
+    # Perform optimization
+    optimizer.step(closure)
+
+
+    # Extract final result
+    final_result = param.detach().cpu().numpy()
+
+    result = copy.deepcopy(velocity_guess)
+    result.from_vector( basis_functions@cp.array(final_result)[:,None] )
+
+    return result, diagnostics
+
+     
+
 @dataclass
 class InversionModel(kgs.Model):
     prior: seis_prior.Prior = field(init=True, default_factory = seis_prior.RowTotalVariation)
@@ -104,7 +189,7 @@ class InversionModel(kgs.Model):
             true_vel = None
         data.velocity_guess.data = cp.array(data.velocity_guess.data)
         data.velocity_guess.min_vel = cp.array(data.velocity_guess.min_vel)
-        data.velocity_guess, diagnostics = seis_to_vel(data.seismogram, data.velocity_guess, self.prior, scaling=self.scaling, maxiter=self.maxiter, method=self.method)
+        data.velocity_guess, diagnostics = seis_to_vel_torch(data.seismogram, data.velocity_guess, self.prior, scaling=self.scaling, maxiter=self.maxiter, method=self.method)
         data.velocity_guess.data = cp.asnumpy(data.velocity_guess.data)
         data.velocity_guess.min_vel = cp.asnumpy(data.velocity_guess.min_vel)
 
