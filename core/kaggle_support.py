@@ -30,6 +30,7 @@ import shutil
 import subprocess
 import inspect
 import csv
+from tqdm import tqdm
 
 
 '''
@@ -543,7 +544,6 @@ class Model(BaseClass):
             with multiprocess.Pool(recommend_n_workers()) as p:
                 dill_save(temp_dir+'parallel.pickle', self)
                 #result = p.starmap(infer_internal_single_parallel, zip(test_data))            
-                from tqdm import tqdm
                 result = list(tqdm(
                     p.imap(infer_internal_single_parallel, test_data),
                     total=len(test_data),
@@ -582,7 +582,7 @@ def score_metric(data, show_diagnostics=True):
     res_per_family = dict()
     for d in data:
         d.velocity.load_to_memory()
-        this_error = np.mean(np.abs(cp.asnumpy(d.velocity.data) - d.velocity_guess.data))
+        this_error = np.mean(np.abs(cp.asnumpy(d.velocity.data) - np.round(d.velocity_guess.data)))
         d.velocity.unload()
         res_all.append(this_error)
         if not d.family in res_per_family:
