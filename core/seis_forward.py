@@ -465,7 +465,7 @@ def vel_to_seis_J_file(velocity, filename):
     t=time.time()
     for i,inds in enumerate(sub_list):
         print(inds[0], time.time()-t)
-        J_part = cp.asnumpy(cp.ascontiguousarray(cp.transpose(vel_to_seis_diff(velocity, cp.eye(4901)[inds,:]))))
+        J_part = cp.asnumpy(cp.ascontiguousarray(cp.transpose(vel_to_seis(velocity, kgs.Seismogram(), cp.eye(4901)[inds,:].T)[1])))
         kgs.dill_save(filename + '_64_' + str(i) + '.pickle', (J_part,inds))
         kgs.dill_save(filename + '_32_' + str(i) + '.pickle', (J_part.astype(np.float32),inds))
 
@@ -486,17 +486,8 @@ def vel_to_seis_J_load_file(filename, to_cpu=True):
         mat = data[0]
         if not to_cpu:
             mat = cp.array(mat)
-        J[:,inds] = mat
+        J[:,inds] = mat.T
         inds_seen.append(inds)
     inds_seen = np.sort(np.concatenate(inds_seen))
     assert np.all(inds_seen == np.arange(4901))
     return J
-        
-    
-    sub_list = np.array_split(np.arange(4901), 49)    
-    t=time.time()
-    for i,inds in enumerate(sub_list):
-        print(inds[0], time.time()-t)
-        J_part = cp.asnumpy(cp.ascontiguousarray(cp.transpose(vel_to_seis_diff(velocity, cp.eye(4901)[inds,:]))))
-        kgs.dill_save(filename + '_64_' + str(i) + '.pickle', (J_part,inds))
-        kgs.dill_save(filename + '_32_' + str(i) + '.pickle', (J_part.astype(np.float32),inds))

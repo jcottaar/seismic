@@ -96,6 +96,7 @@ class SquaredExponential(Prior):
     P = 0
     basis_vectors=0
     prepped=False
+    use_full = False
 
     def __post_init__(self):
         # Mark the object as frozen after initialization        
@@ -150,11 +151,17 @@ class SquaredExponential(Prior):
 
     def _compute_cost_and_gradient(self, x, compute_gradient):
 
-        cost = x[:-1,:].T@self.P@x[:-1,:]
+        if self.use_full:
+            cost = x.T@self.P@x
+        else:            
+            cost = x[:-1,:].T@self.P@x[:-1,:]
         cost = cost[0,0]
 
         if compute_gradient:
-            gradient = 2*cp.concatenate((self.P@x[:-1,:], cp.zeros((1,1),kgs.base_type_gpu)))
+            if self.use_full:
+                gradient = 2*cp.concatenate((self.P@x[:,:]))[:,None]
+            else:
+                gradient = 2*cp.concatenate((self.P@x[:-1,:], cp.zeros((1,1),kgs.base_type_gpu)))
         else:
             gradient = None
 
