@@ -362,6 +362,7 @@ class Data(BaseClass):
 
 def load_all_train_data(validation_only = False):
     dirs = glob.glob(data_dir + '/train_samples/*')
+    dirs.sort()
     base_data = Data()
     base_data.is_train = True
     base_data.velocity = Velocity()
@@ -387,7 +388,9 @@ def load_all_train_data(validation_only = False):
             data_list[-1].check_constraints()
 
         if os.path.isdir(d+'/data/'):            
-            for ii in range(len(glob.glob(d+'/data/*.npy'))):
+            files= glob.glob(d+'/data/*.npy')
+            files.sort()
+            for ii in range(len(files)):
                 if validation_only and not ii==0:
                     continue
                 base_data.seismogram.filename = d+'/data/data'+str(ii+1)+'.npy'
@@ -403,6 +406,7 @@ def load_all_train_data(validation_only = False):
 
 def load_all_test_data():
     files = glob.glob(data_dir + '/test/*')
+    files.sort()
     data_list = []
     base_data = Data()
     base_data.is_train = False

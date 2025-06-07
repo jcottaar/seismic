@@ -9,6 +9,8 @@ import time
 from dataclasses import dataclass, field, fields
 import matplotlib.pyplot as plt
 
+profiling=False
+
 @kgs.profile_each_line
 def cost_and_gradient(x, target, prior, basis_functions, compute_gradient=False):
 
@@ -21,11 +23,14 @@ def cost_and_gradient(x, target, prior, basis_functions, compute_gradient=False)
     cp.cuda.Stream.null.synchronize()
 
     # Residual part
+    t=time.time()
     vec = basis_functions@x
     if compute_gradient:
         s, _, s_adjoint = seis_forward2.vel_to_seis(vec, vec_adjoint=target, adjoint_on_residual=True)
     else:
         s, _, _ = seis_forward2.vel_to_seis(vec)
+    if profiling:
+        print(f'vel_to_seis time: {1e3*(time.time()-t):.2f}')
 
     cost_residual = cp.mean( (s-target)**2 )
     if compute_gradient:
@@ -116,7 +121,7 @@ class InversionModel(kgs.Model):
         target = seismogram.to_vector()
         vec = velocity_guess.to_vector()
 
-        rhs = -basis_functions.T@seis_forward2.vel_to_seis(vec, vec_adjoint=target, adjoint_on_residual=True)[2] # basis_functions.T@J.T@(target-vel_guess)
+        rhs = -basis_functions.T@seis_forward2.vel_to_seis(basis_functions@x_guess, vec_adjoint=target, adjoint_on_residual=True)[2] # basis_functions.T@J.T@(target-vel_guess)
         rhs = rhs - np.concatenate( (self.prior.λ*self.prior.P@x_guess[:-1,:],cp.zeros((1,1),dtype=kgs.base_type_gpu)),axis=0)
         print(kgs.rms(rhs))
         print(kgs.rms(np.concatenate( (self.prior.λ*self.prior.P@x_guess[:-1,:],cp.zeros((1,1),dtype=kgs.base_type_gpu)),axis=0)))
@@ -229,8 +234,8 @@ class InversionModel(kgs.Model):
         target = seismogram.to_vector()
     
         def cost_and_gradient_func(x):
-            #global last_t
-            #print('overhead: ', time.time()-last_t)
+            global last_t            
+            start_t=time.time()
             xx = cp.array(x,dtype=kgs.base_type_gpu)[:,None]
             cost,gradient,cost_prior, cost_residual = cost_and_gradient(xx, target, self.prior, basis_functions, compute_gradient=True)
             if not true_vel is None:
@@ -242,7 +247,11 @@ class InversionModel(kgs.Model):
                 diagnostics['x'].append(cp.asnumpy(basis_functions@xx))
             cost = cost*self.scaling
             gradient = gradient*self.scaling
-            #last_t = time.time()
+            if profiling:               
+                print(f'outside cost_and_gradient_func: {1e3*(start_t-last_t):.2f}')
+                print(f'total iteration time: {1e3*(time.time()-last_t):.2f}')
+                print('')
+            last_t = time.time()
             return cp.asnumpy(cost), cp.asnumpy(gradient[:,0])
     
         #cost_func = lambda x: 
@@ -334,6 +343,7 @@ class InversionModel(kgs.Model):
                 #mat = np.random.default_rng(seed=0).normal(0,1,size=((100,100,100)))
                 #seis_diagnostics.animate_3d_matrix(mat)
                 #raise 'stop'
+            #data.velocity_guess, diagnostics = self.seis_to_vel_gn(data.seismogram, data.velocity_guess)
             
         data.velocity_guess.data = cp.asnumpy(data.velocity_guess.data)
         data.velocity_guess.min_vel = cp.asnumpy(data.velocity_guess.min_vel)
