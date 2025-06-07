@@ -140,7 +140,7 @@ class InversionModel(kgs.Model):
             v2 = seis_forward2.vel_to_seis(vec, vec_adjoint=v1)[2]
             res = np.concatenate( (self.prior.λ*self.prior.P@x[:-1,:],cp.zeros((1,1),dtype=kgs.base_type_gpu)),axis=0)+ basis_functions.T@v2/N
             res = res[:,0]
-            print(res.shape)
+            #print(res.shape)
             return res
 
         # import seis_forward
@@ -168,7 +168,7 @@ class InversionModel(kgs.Model):
         import cupyx.scipy.sparse.linalg
         AA=cupyx.scipy.sparse.linalg.LinearOperator( (self.prior.N,self.prior.N), A)
         print(rhs.shape)
-        res_inv=cupyx.scipy.sparse.linalg.gmres(AA,rhs,maxiter=10,restart=10)[0]
+        res_inv=cupyx.scipy.sparse.linalg.gmres(AA,rhs,maxiter=300,restart=300)[0]
         res_inv = res_inv[:,None]
 
 
