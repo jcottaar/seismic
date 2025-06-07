@@ -311,6 +311,11 @@ class Velocity(BaseClass):
         self.data = cp.array( np.load(self.filename, mmap_mode='r')[self.ind,0,:,:], dtype = base_type_gpu )
         self.min_vel = cp.min(self.data)
 
+    def to_cupy(self):
+        self.data = cp.array(self.data)
+        self.min_vel = cp.array(self.min_vel)
+        self.check_constraints()
+
     def to_vector(self):
         vec = cp.concatenate((self.data.flatten(), cp.reshape(self.min_vel, (1))))[:,None]
         return vec

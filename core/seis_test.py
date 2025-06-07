@@ -88,12 +88,13 @@ def run_all_tests(test_reference_mode = False):
     #seis_forward.reference_mode = False
     data = kgs.load_all_train_data()
 
-    test_prior(seis_prior.SquaredExponential())
-    test_prior(seis_prior.RowTotalVariation())
-    
     test_stuff_on_one_case(data[2059], 1e-4, test_reference_mode=test_reference_mode)
     test_stuff_on_one_case(data[-1001], 1e-4, test_reference_mode=test_reference_mode)
 
+    test_prior(seis_prior.SquaredExponential())
+    test_prior(seis_prior.RowTotalVariation())
+    
+    
     
 
     test_cost(data[2059], seis_prior.RowTotalVariation())

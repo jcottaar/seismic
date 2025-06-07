@@ -139,6 +139,23 @@ def vel_to_seis(vec, vec_diff=None, vec_adjoint=None, adjoint_on_residual=False)
                                    cp.roll( p_complete_diff[it+1,...], 1, axis=0) + cp.roll( p_complete_diff[it+1,...], -1, axis=0)) +
                              cp.array(c3) * (cp.roll( p_complete_diff[it+1,...], 2, axis=1) + cp.roll( p_complete_diff[it+1,...], -2, axis=1) +
                                    cp.roll( p_complete_diff[it+1,...], 2, axis=0) + cp.roll( p_complete_diff[it+1,...], -2, axis=0)))
+                    # update_p_diff(
+                    #             (bx, by), (tx, ty),
+                    #             (
+                    #                 temp1_flat, temp1_diff_flat, temp2_flat, temp2_diff_flat, alpha_flat, alpha_diff_flat, 
+                    #                 p_complete_flat[it*(nx*nz):],
+                    #                 p_complete_flat[(it+1)*(nx*nz):],
+                    #                 p_complete_flat[(it+2)*(nx*nz):],
+                    #                 lapg_store_flat[nx*nz*it:], lapg_store_diff_flat,
+                    #                 p_complete_diff_flat[it*(nx*nz):],
+                    #                 p_complete_diff_flat[(it+1)*(nx*nz):],
+                    #                 p_complete_diff_flat[(it+2)*(nx*nz):],
+                    #                 nx, nz, it,
+                    #                 c2, c3,
+                    #                 src_idx_dev, s_mod
+                    #             )
+                    #         )
+                    #%p_complete_diff[it+2,...] = 0
                     p_complete_diff[it+2,...] = (temp1 * p_complete_diff[it+1,...] + temp1_diff*p_complete[it+1,...] - temp2_diff * p_complete[it,...] - temp2*p_complete_diff[it,...] + 
                          alpha_diff * lapg_store[it,...] + alpha*lapg_store_diff)
                     p_complete_diff[it+2,...].ravel()[src_idx] += s_mod_diff[it]   
@@ -544,6 +561,53 @@ module = cp.RawModule(code=kernel_code.replace('floattype', kgs.base_type_str))
 update_p = module.get_function('update_p')
 
 
+kernel_code = r'''
+extern "C" __global__
+void update_p_diff(
+              const floattype* __restrict__ temp1,
+              const floattype* __restrict__ temp1_diff,
+              const floattype* __restrict__ temp2,
+              const floattype* __restrict__ temp2_diff,
+              const floattype* __restrict__ alpha,
+              const floattype* __restrict__ alpha_diff,
+              const floattype*             __restrict__ pout,
+              const floattype*             __restrict__ pout1,
+              const floattype*             __restrict__ pout2,
+              const floattype*             __restrict__ lapg_store,
+              const floattype*             __restrict__ lapg_store_diff,
+              floattype*  __restrict__ pout_diff,
+              floattype*  __restrict__ pout1_diff,
+              floattype*  __restrict__ pout2_diff,
+              const int    nx,
+              const int    ny,
+              const int    it,
+              const floattype  c2,
+              const floattype  c3,
+              const int*   __restrict__ src_idx,
+              const floattype* __restrict__ s_mod_diff) {
+    int ix = blockDim.x * blockIdx.x + threadIdx.x;
+    int iy = blockDim.y * blockIdx.y + threadIdx.y;
+    if (ix >= nx || iy >= ny) return;
+    int idx = iy * nx + ix;
+
+    floattype out = temp1_diff[idx] * pout1[idx] + temp1[idx]*pout1_diff[idx];
+
+    //floattype out = temp1_local*pout1_local
+    //          - temp2_local*pout_local
+    //          + alpha_local*lapg_store_local;
+
+    //floattype out = 0
+    // fused source injection:
+    //if (idx == src_idx[0]) {
+    //    out += s_mod_diff[it];
+    //}
+    pout2_diff[idx] = out;
+}
+'''
+
+module = cp.RawModule(code=kernel_code.replace('floattype', kgs.base_type_str))
+update_p_diff = module.get_function('update_p_diff')
+
 # CUDA kernel for adjoint calculation
 kernel_code = r'''
 extern "C" __global__
@@ -746,6 +810,13 @@ temp2_diff = cp.zeros((nx,nz), dtype=kgs.base_type_gpu)
 alpha_diff = cp.zeros((nx,nz), dtype=kgs.base_type_gpu)
 v_diff = cp.zeros((nx,nz), dtype=kgs.base_type_gpu)
 s_mod_diff = cp.zeros_like(s)
+seis_combined_diff_flat = seis_combined_diff.ravel()
+p_complete_diff_flat = p_complete_diff.ravel()
+lapg_store_diff_flat = lapg_store_diff.ravel()
+temp1_diff_flat = temp1_diff.ravel()
+temp2_diff_flat = temp2_diff.ravel()
+alpha_diff_flat = alpha_diff.ravel()
+v_diff_flat = v_diff.ravel()
 
 seis_combined_adjoint = cp.zeros((5,999,70),dtype=kgs.base_type_gpu)
 p_complete_adjoint = cp.zeros((nt+2,nx,nz), dtype=kgs.base_type_gpu)
