@@ -61,7 +61,7 @@ match env:
         data_dir = '/kaggle/input/waveform-inversion/'
         temp_dir = '/temp/'             
         code_dir = '/kaggle/input/my-seismic-library/' 
-        cache_dir_write = '/kaggle/temp/cache/'
+        cache_dir_write = '/kaggle/working/cache/'
         cache_dir_read = '/kaggle/input/seismic-cache/'
         output_dir = '/kaggle/working/'
         brendan_model_dir = '/kaggle/input/openfwi-preprocessed-72x72/models_1000x70/'
@@ -529,7 +529,7 @@ class Model(BaseClass):
         if self.write_cache:
             this_cache_dir = cache_dir_write+self.cache_name+'/'
             os.makedirs(this_cache_dir,exist_ok=True)
-            for d in test_data:
+            for d in test_data_inferred:
                 if not d.do_not_cache:
                     dill_save(this_cache_dir+d.cache_name(), (d.velocity_guess, git_commit_id))
                 

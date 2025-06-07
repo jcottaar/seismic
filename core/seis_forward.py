@@ -460,25 +460,25 @@ def vel_to_seis_ref(vec):
 
 #     return cp.transpose(J)
 
-def vel_to_seis_J_file(velocity, filename):
-    sub_list = np.array_split(np.arange(4901), 49)    
+def vel_to_seis_J_file(velocity, filename, n_split=49, rhs=cp.eye(4901,dtype=kgs.base_type_gpu)):
+    sub_list = np.array_split(np.arange(rhs.shape[0]), n_split)    
     t=time.time()
     for i,inds in enumerate(sub_list):
         print(inds[0], time.time()-t)
-        J_part = cp.asnumpy(cp.ascontiguousarray(cp.transpose(vel_to_seis(velocity, kgs.Seismogram(), cp.eye(4901)[inds,:].T)[1])))
+        J_part = cp.asnumpy(cp.ascontiguousarray(cp.transpose(vel_to_seis(velocity, kgs.Seismogram(), rhs[inds,:].T)[1])))
         kgs.dill_save(filename + '_64_' + str(i) + '.pickle', (J_part,inds))
         kgs.dill_save(filename + '_32_' + str(i) + '.pickle', (J_part.astype(np.float32),inds))
 
-def vel_to_seis_J_load_file(filename, to_cpu=True):
+def vel_to_seis_J_load_file(filename, to_cpu=True, n_rhs=4901):
     files = glob.glob(filename + '*')
     data = kgs.dill_load(files[0])
     if to_cpu:
-        J = np.empty( (349650,4901), dtype=data[0].dtype )
+        J = np.empty( (349650,n_rhs), dtype=data[0].dtype )
     else:
         if data[0].dtype==np.float32:
-            J = cp.empty( (349650, 4901), dtype=cp.float32 )
+            J = cp.empty( (349650, n_rhs), dtype=cp.float32 )
         else:
-            J = cp.empty( (349650, 4901), dtype=cp.float64 )
+            J = cp.empty( (349650, n_rhs), dtype=cp.float64 )
     inds_seen = []
     for f in files:
         data = kgs.dill_load(f)
@@ -489,5 +489,5 @@ def vel_to_seis_J_load_file(filename, to_cpu=True):
         J[:,inds] = mat.T
         inds_seen.append(inds)
     inds_seen = np.sort(np.concatenate(inds_seen))
-    assert np.all(inds_seen == np.arange(4901))
+    assert np.all(inds_seen == np.arange(n_rhs))
     return J

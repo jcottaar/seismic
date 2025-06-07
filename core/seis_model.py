@@ -51,6 +51,7 @@ def submission_model():
 def check_model_accuracy(model, subsample):
     model = copy.deepcopy(model)
     model.read_cache=False
+    model.models[-1].model.read_cache = False
     data=kgs.load_all_train_data(validation_only=True)[::subsample]
     data_out = model.infer(data)
     _,_,scores = kgs.score_metric(data_out)

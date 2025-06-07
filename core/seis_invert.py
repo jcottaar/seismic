@@ -7,7 +7,7 @@ import scipy
 import copy
 import time
 from dataclasses import dataclass, field, fields
-print('maxcor')
+import matplotlib.pyplot as plt
 
 @kgs.profile_each_line
 def cost_and_gradient(x, target, prior, basis_functions, compute_gradient=False):
@@ -101,12 +101,129 @@ class InversionModel(kgs.Model):
     scaling = 1e15
     prec_matrix: object = field(init=True, default_factory = lambda:cp.eye(4901))
 
+    do_gn = False
+
+    show_convergence = False
+
+    def seis_to_vel_gn(self, seismogram, velocity_guess):
+        basis_functions = self.prior.basis_functions()
+        if not cp.all(self.prec_matrix == cp.eye(4901)):
+            basis_functions = self.prec_matrix@basis_functions
+            self.prior.P = self.prec_matrix[:-1,:-1].T@self.prior.P@self.prec_matrix[:-1,:-1]
+            print(self.prior.P.shape)
+        x_guess = cp.linalg.solve(cp.array(basis_functions.T@basis_functions), basis_functions.T@(velocity_guess.to_vector()))
+        x_guess = x_guess.astype(dtype=kgs.base_type)
+        target = seismogram.to_vector()
+        vec = velocity_guess.to_vector()
+
+        rhs = -basis_functions.T@seis_forward2.vel_to_seis(vec, vec_adjoint=target, adjoint_on_residual=True)[2] # basis_functions.T@J.T@(target-vel_guess)
+        rhs = rhs - np.concatenate( (self.prior.λ*self.prior.P@x_guess[:-1,:],cp.zeros((1,1),dtype=kgs.base_type_gpu)),axis=0)
+        print(kgs.rms(rhs))
+        print(kgs.rms(np.concatenate( (self.prior.λ*self.prior.P@x_guess[:-1,:],cp.zeros((1,1),dtype=kgs.base_type_gpu)),axis=0)))
+        print('gn', kgs.rms(seismogram.to_vector()- seis_forward2.vel_to_seis(velocity_guess.to_vector())[0]))
+        print(kgs.rms(-basis_functions.T@seis_forward2.vel_to_seis(vec, vec_adjoint=target, adjoint_on_residual=True)[2]))
+        
+        def A(x):
+            x = x[:,None]
+            v1 = seis_forward2.vel_to_seis(vec, vec_diff=basis_functions@x)[1]
+            v2 = seis_forward2.vel_to_seis(vec, vec_adjoint=v1)[2]
+            res = np.concatenate( (self.prior.λ*self.prior.P@x[:-1,:],cp.zeros((1,1),dtype=kgs.base_type_gpu)),axis=0)+ basis_functions.T@v2
+            res = res[:,0]
+            print(res.shape)
+            return res
+
+        import seis_forward
+        print(basis_functions.shape)
+        seis_forward.vel_to_seis_J_file(velocity_guess, kgs.temp_dir + '/Jint', n_split=30, rhs=basis_functions.T)
+        J = seis_forward.vel_to_seis_J_load_file(kgs.temp_dir + '/Jint_64_', to_cpu=True, n_rhs=basis_functions.shape[1])        
+
+        # test_vec = np.random.default_rng(seed=0).normal(0,1,(x_guess.shape[0],1))
+        # rres1 = cp.array(J@test_vec)
+        # rres2 = seis_forward2.vel_to_seis(vec, vec_diff = basis_functions@cp.array(test_vec))[1]
+        # print(kgs.rms(rres1-rres2), kgs.rms(rres1))
+        
+        print(J.shape)
+        A_mat = cp.pad(self.prior.λ*self.prior.P, ((0, 1), (0, 1)), mode='constant', constant_values=0) + cp.array(J.T@J)
+        res_inv = cp.linalg.solve(A_mat, rhs)
+        print('res_inv', kgs.rms(res_inv))
+        print(res_inv.shape)
+        # Numerically invert A
+        # import cupyx.scipy.sparse.linalg
+        # AA=cupyx.scipy.sparse.linalg.LinearOperator( (self.prior.N,self.prior.N), A)
+        # print(rhs.shape)
+        # res_inv=cupyx.scipy.sparse.linalg.gmres(AA,rhs,maxiter=1,restart=1)[0]
+        # res_inv = res_inv[:,None]
+
+
+        
+        res2 = basis_functions@res_inv
+       
+        vals = [];vals2 = [];
+        scales = np.linspace(-0.05,1.05,100)
+        seis_offset = seis_forward2.vel_to_seis(vec)[0]
+        Jres2 = cp.array(J@cp.asnumpy(res_inv))
+        #scales = np.linspace(-0.01,0.01,100)
+        for scale in scales:
+            res_here = velocity_guess.to_vector() + scale*res2
+            #vals.append(cp.asnumpy(kgs.rms(res_here-true_vel.to_vector())))
+            vals.append(cp.asnumpy(kgs.rms(seismogram.to_vector() - seis_offset - scale*Jres2)))
+            vals2.append(cp.asnumpy(kgs.rms(seismogram.to_vector() - seis_forward2.vel_to_seis(velocity_guess.to_vector() + scale*res2)[0])))
+        plt.figure()
+        plt.semilogy(scales,vals)
+        plt.semilogy(scales,vals2)
+        plt.legend(('Linearized', 'Actual'))
+        plt.grid(True)
+        plt.pause(0.001)
+
+        vals = [];        
+        for scale in scales:
+            res_here = velocity_guess.to_vector() + scale*res2
+            vals.append(cp.asnumpy(kgs.rms(res_here-true_vel.to_vector())))            
+        plt.figure()
+        plt.semilogy(scales,vals)
+        plt.legend(('Vel error'))
+        plt.grid(True)
+        plt.pause(0.001)
+
+        vals = [];        
+        for scale in scales:
+            #print(x_guess+scale*res_inv)
+            vals.append(cp.asnumpy(cost_and_gradient(x_guess+scale*res_inv, target, self.prior, basis_functions, compute_gradient=False)[0]))
+        #print(vals)
+        plt.figure()
+        plt.semilogy(scales,vals)
+        plt.legend(('Cost'))
+        plt.grid(True)
+        plt.pause(0.001)
+
+        scale_use = scales[np.argmin(vals)]
+
+        res = velocity_guess.to_vector() + scale_use*res2
+
+        result = copy.deepcopy(velocity_guess)
+        result.from_vector( res )
+
+            
+
+        diagnostics = dict()
+        diagnostics['vel_error_per_fev'] = []
+        diagnostics['seis_error_per_fev'] = []
+        diagnostics['prior_cost_per_fev'] = []
+        if not true_vel is None:
+            diagnostics['vel_error_per_fev'].append(cp.asnumpy(kgs.rms(res-true_vel.to_vector())))
+        cost,cost_prior,cost_residual = cost_and_gradient(x_guess+res_inv, target, self.prior, basis_functions, compute_gradient=False)
+        diagnostics['seis_error_per_fev'].append(cp.asnumpy(cost_residual))
+        diagnostics['prior_cost_per_fev'].append(cp.asnumpy(cost_prior))
+        
+    
+        return result, diagnostics
+
     def seis_to_vel_torch(self, seismogram, velocity_guess):
         basis_functions = self.prior.basis_functions()
-        print(self.prior.P.shape)
-        basis_functions = self.prec_matrix@basis_functions
-        self.prior.P = self.prec_matrix[:-1,:-1].T@self.prior.P@self.prec_matrix[:-1,:-1]
-        #print(self.prior.P.shape)
+        if not cp.all(self.prec_matrix == cp.eye(4901)):
+            basis_functions = self.prec_matrix@basis_functions
+            self.prior.P = self.prec_matrix[:-1,:-1].T@self.prior.P@self.prec_matrix[:-1,:-1]
+            print(self.prior.P.shape)
         x_guess = cp.asnumpy(cp.linalg.solve(cp.array(basis_functions.T@basis_functions), basis_functions.T@(velocity_guess.to_vector())))
         x_guess = x_guess.astype(dtype=kgs.base_type)
         target = seismogram.to_vector()
@@ -117,10 +234,12 @@ class InversionModel(kgs.Model):
             xx = cp.array(x,dtype=kgs.base_type_gpu)[:,None]
             cost,gradient,cost_prior, cost_residual = cost_and_gradient(xx, target, self.prior, basis_functions, compute_gradient=True)
             if not true_vel is None:
-                print(cost, kgs.rms(basis_functions@cp.array(x[:,None])-true_vel.to_vector()))
+                #print(cost, kgs.rms(basis_functions@cp.array(x[:,None])-true_vel.to_vector()))
                 diagnostics['vel_error_per_fev'].append(cp.asnumpy(kgs.rms(basis_functions@xx-true_vel.to_vector())))
             diagnostics['seis_error_per_fev'].append(cp.asnumpy(cost_residual))
             diagnostics['prior_cost_per_fev'].append(cp.asnumpy(cost_prior))
+            if self.show_convergence:
+                diagnostics['x'].append(cp.asnumpy(basis_functions@xx))
             cost = cost*self.scaling
             gradient = gradient*self.scaling
             #last_t = time.time()
@@ -134,6 +253,7 @@ class InversionModel(kgs.Model):
         diagnostics['vel_error_per_fev'] = []
         diagnostics['seis_error_per_fev'] = []
         diagnostics['prior_cost_per_fev'] = []
+        diagnostics['x'] = []
     
         # Torch LBFGS implementation
         import torch
@@ -194,7 +314,27 @@ class InversionModel(kgs.Model):
             true_vel = None
         data.velocity_guess.data = cp.array(data.velocity_guess.data)
         data.velocity_guess.min_vel = cp.array(data.velocity_guess.min_vel)
-        data.velocity_guess, diagnostics = self.seis_to_vel_torch(data.seismogram, data.velocity_guess)
+        if self.do_gn:            
+            for ii in range(10):
+                plt.figure()
+                plt.imshow(cp.asnumpy(data.velocity_guess.data - true_vel.data))
+                plt.colorbar()
+                plt.pause(0.001)
+                data.velocity_guess, diagnostics = self.seis_to_vel_gn(data.seismogram, data.velocity_guess)
+        else:            
+            data.velocity_guess, diagnostics = self.seis_to_vel_torch(data.seismogram, data.velocity_guess)
+            if self.show_convergence:
+                x_by_it = []
+                for x_interm in diagnostics['x'][::np.ceil(len(diagnostics['x'])/100).astype(int)]:
+                    x_by_it.append(np.reshape(x_interm[:-1,:],(70,70)) - cp.asnumpy(true_vel.data))
+                x_by_it = np.stack(x_by_it)
+                import seis_diagnostics
+                seis_diagnostics.animate_3d_matrix(x_by_it)
+                plt.pause(0.001)
+                #mat = np.random.default_rng(seed=0).normal(0,1,size=((100,100,100)))
+                #seis_diagnostics.animate_3d_matrix(mat)
+                #raise 'stop'
+            
         data.velocity_guess.data = cp.asnumpy(data.velocity_guess.data)
         data.velocity_guess.min_vel = cp.asnumpy(data.velocity_guess.min_vel)
 
