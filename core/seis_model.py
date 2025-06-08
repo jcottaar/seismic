@@ -26,14 +26,12 @@ def model_FlatVel():
 
 def model_Style_A():
     model = seis_invert.InversionModel()
-    model.iter_list = [10] if not test_mode else [50,-50]
-    print('too low')
-    print('only doing style A in test mode')
+    model.iter_list = [1500] if not test_mode else [50,-50]
     
     model.prior = seis_prior.SquaredExponential()
     model.prior.transform = True
     model.prior.svd_cutoff = 1.
-    model.prior.λ = 10**-11
+    model.prior.λ = 10**-12
 
     model.cache_name = 'Style_A'
     model.write_cache = True
@@ -89,8 +87,7 @@ class ModelSplit(kgs.Model):
             if kpi_Style_A<np.exp(15):
                 if not data.family=='test':
                     assert data.family=='Style_A'                
-                if test_mode:
-                    data = self.model_Style_A.infer([data])[0]
+                data = self.model_Style_A.infer([data])[0]
                 data.do_not_cache=True                
             else:
                 if not data.family=='test':
