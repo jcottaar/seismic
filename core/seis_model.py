@@ -89,7 +89,7 @@ class ModelSplit(kgs.Model):
             if kpi_Style_A<np.exp(15):
                 if not data.family=='test':
                     assert data.family=='Style_A'                
-                if self.test_mode:
+                if test_mode:
                     data = self.model_Style_A.infer([data])[0]
                 data.do_not_cache=True                
             else:
@@ -123,8 +123,7 @@ def submission_model():
 
 def check_model_accuracy(model, subsample):
     model = copy.deepcopy(model)
-    model.read_cache=False
-    model.models[-1].model.read_cache = False
+    kgs.disable_caching = True
     data=kgs.load_all_train_data(validation_only=True)[::subsample]
     data_out = model.infer(data)
     _,_,scores = kgs.score_metric(data_out)
