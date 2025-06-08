@@ -194,14 +194,14 @@ class InversionModel(kgs.Model):
                 data.velocity_guess, diagnostics = self.seis_to_vel_gn(data.seismogram, data.velocity_guess, diagnostics, maxiter=-maxiter)
             else:
                 data.velocity_guess, diagnostics = self.seis_to_vel_lbfgs(data.seismogram, data.velocity_guess, diagnostics, maxiter=maxiter)
-        if self.show_convergence:
-            x_by_it = []
-            for x_interm in diagnostics['x'][::np.ceil(len(diagnostics['x'])/100).astype(int)]:
-                x_by_it.append(np.reshape(x_interm[:-1,:],(70,70)) - cp.asnumpy(true_vel.data))
-            x_by_it = np.stack(x_by_it)
-            import seis_diagnostics
-            seis_diagnostics.animate_3d_matrix(x_by_it)
-            plt.pause(0.001)
+        # if self.show_convergence:
+        #     x_by_it = []
+        #     for x_interm in diagnostics['x'][::np.ceil(len(diagnostics['x'])/100).astype(int)]:
+        #         x_by_it.append(np.reshape(x_interm[:-1,:],(70,70)) - cp.asnumpy(true_vel.data))
+        #     x_by_it = np.stack(x_by_it)
+        #     import seis_diagnostics
+        #     seis_diagnostics.animate_3d_matrix(x_by_it)
+        #     plt.pause(0.001)
             
         data.velocity_guess.data = cp.asnumpy(data.velocity_guess.data)
         data.velocity_guess.min_vel = cp.asnumpy(data.velocity_guess.min_vel)

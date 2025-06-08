@@ -558,11 +558,11 @@ class Model(BaseClass):
                 result = list(tqdm(
                     p.imap(infer_internal_single_parallel, test_data),
                     total=len(test_data),
-                    desc="Processing in parallel "+self.cache_name
+                    desc="Processing in parallel "+self.cache_name, smoothing = 0.05
                     ))
         else:
             result = []
-            for xx in tqdm(test_data, desc="Inferring "+self.cache_name, disable = len(test_data)<=1):     
+            for xx in tqdm(test_data, desc="Inferring "+self.cache_name, disable = len(test_data)<=1, smoothing = 0.05):     
                 x = copy.deepcopy(xx)  
                 if x.seismogram.data is None:
                     x.seismogram.load_to_memory()
