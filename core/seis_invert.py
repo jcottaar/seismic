@@ -48,6 +48,7 @@ class InversionModel(kgs.Model):
     prior: seis_prior.Prior = field(init=True, default_factory = seis_prior.RowTotalVariation)
     history_size = 10000
     scaling = 1e15
+    lbfgs_tolerance_grad = 1e-7
     maxiter= 2000    
     prec_matrix: object = field(init=True, default_factory = lambda:cp.eye(4901))
 
@@ -142,8 +143,8 @@ class InversionModel(kgs.Model):
             [param],
             lr=1.0,
             max_iter=maxiter,
-            tolerance_grad=1e-7,
-            tolerance_change=1e-9,
+            tolerance_grad=self.lbfgs_tolerance_grad,
+            tolerance_change=0.,
             history_size=self.history_size,
             line_search_fn="strong_wolfe"
         )
