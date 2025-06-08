@@ -28,6 +28,7 @@ def model_Style_A():
     model = seis_invert.InversionModel()
     model.iter_list = [10] if not test_mode else [50,-50]
     print('too low')
+    print('only doing style A in test mode')
     
     model.prior = seis_prior.SquaredExponential()
     model.prior.transform = True
@@ -87,8 +88,9 @@ class ModelSplit(kgs.Model):
             #print(kpi_Style_A)
             if kpi_Style_A<np.exp(15):
                 if not data.family=='test':
-                    assert data.family=='Style_A'
-                data = self.model_Style_A.infer([data])[0]
+                    assert data.family=='Style_A'                
+                if self.test_mode:
+                    data = self.model_Style_A.infer([data])[0]
                 data.do_not_cache=True                
             else:
                 if not data.family=='test':
