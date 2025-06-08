@@ -114,7 +114,7 @@ def default_model():
 def submission_model():
     model = default_model()
     model.models = model.models[0:1]
-
+    model.write_cache = False
     return model
 
 def check_model_accuracy(model, subsample):
@@ -128,7 +128,7 @@ def check_model_accuracy(model, subsample):
         if 'FlatVel' in d.family:
             success = score<1.
         else: 
-            success = score<200.
+            success = score<10.
         if not success:            
             d.load_to_memory()
             _,ax = plt.subplots(1,2,figsize=(12,6))
