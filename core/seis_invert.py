@@ -80,7 +80,7 @@ class InversionModel(kgs.Model):
                 cost,cost_prior, cost_residual = cost_and_gradient(xx, target, self.prior, basis_functions, compute_gradient=False)
                 for ii in range(maxiter):
                     if not true_vel is None:
-                        diagnostics['vel_error_per_fev'].append(cp.asnumpy(kgs.rms(basis_functions@xx-true_vel.to_vector())))
+                        diagnostics['vel_error_per_fev'].append(cp.asnumpy(cp.mean(cp.abs((basis_functions@xx-true_vel.to_vector())))))
                     diagnostics['seis_error_per_fev'].append(cp.asnumpy(cost_residual))
                     diagnostics['total_cost_per_fev'].append(cp.asnumpy(cost))                    
                     diagnostics['x'].append(cp.asnumpy(basis_functions@xx))
@@ -112,7 +112,7 @@ class InversionModel(kgs.Model):
             cost,gradient,cost_prior, cost_residual = cost_and_gradient(xx, target, self.prior, basis_functions, compute_gradient=True)
             if not true_vel is None:
                 #print(cost, kgs.rms(basis_functions@cp.array(x[:,None])-true_vel.to_vector()))
-                diagnostics['vel_error_per_fev'].append(cp.asnumpy(kgs.rms(basis_functions@xx-true_vel.to_vector())))
+                diagnostics['vel_error_per_fev'].append(cp.asnumpy(cp.mean(cp.abs(basis_functions@xx-true_vel.to_vector()))))
             diagnostics['seis_error_per_fev'].append(cp.asnumpy(cost_residual))
             diagnostics['total_cost_per_fev'].append(cp.asnumpy(cost))
             if self.show_convergence:

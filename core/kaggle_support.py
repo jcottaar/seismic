@@ -84,8 +84,8 @@ def recommend_n_workers():
 n_cuda_devices = recommend_n_workers()
 process_name = multiprocess.current_process().name
 if not multiprocess.current_process().name == "MainProcess":
-    pid = int(multiprocess.current_process().name[-1])-1    
-    os.environ["CUDA_VISIBLE_DEVICES"] = str(np.mod(pid, n_cuda_devices))
+    print(process_name, multiprocess.current_process()._identity[0])  
+    os.environ["CUDA_VISIBLE_DEVICES"] = str(np.mod(multiprocess.current_process()._identity[0], n_cuda_devices))
     print('CUDA_VISIBLE_DEVICES=', os.environ["CUDA_VISIBLE_DEVICES"]);
 
 import cupy as cp

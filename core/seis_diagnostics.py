@@ -34,7 +34,7 @@ def do_diagnostics_run(data, model, do_which_list, param_func, param_values, par
     # 2: seis_given -> vel_true from vel_guess
     N_which = 3
     names_which = ['target=remodeled', 'target=given', 'start from guess']
-    plot_names = ['velocity RMS error', 'seismogram RMS error', 'total cost'] 
+    plot_names = ['velocity MAE error', 'seismogram RMS error', 'total cost'] 
     plot_fields = ['vel_error_per_fev', 'seis_error_per_fev', 'total_cost_per_fev']
 
     # Prep data
