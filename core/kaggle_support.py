@@ -459,7 +459,7 @@ class Model(BaseClass):
     state: int = field(init=False, default=0) # 0: untrained, 1: trained    
     run_in_parallel: bool = field(init=False, default=False) 
     seed: object = field(init=True, default=None)  
-    cache_name: str = field(init=True, default=None)
+    cache_name: str = field(init=True, default='')
 
     write_cache: bool = field(init=True, default=False)
     read_cache: bool = field(init=True, default=False)
@@ -503,7 +503,7 @@ class Model(BaseClass):
             test_data_cached = []
             tt = copy.deepcopy(test_data)
             test_data = []
-            for d in tqdm(tt, desc="Importing cache", disable=len(tt)<=1):
+            for d in tqdm(tt, desc="Importing cache "+self.cache_name, disable=len(tt)<=1):
                 if d.cache_name() in files:
                     cached.append(True)
                     test_data_cached.append(d)
@@ -558,11 +558,11 @@ class Model(BaseClass):
                 result = list(tqdm(
                     p.imap(infer_internal_single_parallel, test_data),
                     total=len(test_data),
-                    desc="Processing in parallel"
+                    desc="Processing in parallel "+self.cache_name
                     ))
         else:
             result = []
-            for xx in tqdm(test_data, desc="Inferring", disable = len(test_data)<=1):     
+            for xx in tqdm(test_data, desc="Inferring "+self.cache_name, disable = len(test_data)<=1):     
                 x = copy.deepcopy(xx)  
                 if x.seismogram.data is None:
                     x.seismogram.load_to_memory()
