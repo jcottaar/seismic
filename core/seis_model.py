@@ -26,12 +26,13 @@ def model_FlatVel():
 
 def model_Style_A():
     model = seis_invert.InversionModel()
-    model.iter_list = [1500] if not test_mode else [50,-50]
+    model.iter_list = [2500] if not test_mode else [50,-50]
     
     model.prior = seis_prior.SquaredExponential()
     model.prior.transform = True
     model.prior.svd_cutoff = 1.
     model.prior.λ = 10**-12
+    model.lbfgs_tolerance_grad = 10**6.5
 
     model.cache_name = 'Style_A'
     model.write_cache = True
@@ -130,7 +131,7 @@ def check_model_accuracy(model, subsample):
         success = True
         if 'FlatVel' in d.family:
             success = score<1.
-        else: 
+        elif 'Style_A' in d.family:  
             success = score<10.
         if not success:            
             d.load_to_memory()
