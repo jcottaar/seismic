@@ -8,6 +8,7 @@ import seis_forward
 import seis_forward2
 import seis_prior
 import seis_invert
+import seis_model
 import copy
 import importlib
 import matplotlib.pyplot as plt
@@ -82,11 +83,31 @@ def test_cost(data, prior):
     assert (kgs.rms(cp.sum(gradient*offset_vec) - (cost_offset-cost))/kgs.rms(cost_offset-cost))<1e-4
     print (kgs.rms(cp.sum(gradient*offset_vec) - (cost_offset-cost)), kgs.rms(cost_offset-cost))
 
-def run_all_tests(test_reference_mode = False):
+def test_to_reference(d, write_reference=False):
+    print(d.family)
+    model = seis_model.default_model()
+    kgs.disable_caching = True
+    result = model.infer([d])[0]
+    if write_reference:
+        assert kgs.env=='local'
+        kgs.dill_save(kgs.code_dir + '/' + d.family + '_ref.pickle', result)
+    ref = kgs.dill_load(kgs.code_dir + '/' + d.family + '_ref.pickle')
+    if kgs.env=='local':
+        assert str(result.velocity_guess.data) == str(ref.velocity_guess.data)
+    else:
+        assert kgs.rms(result.velocity_guess.data - ref.velocity_guess.data)<0.1
+    kgs.disable_caching = False
+    
+
+def run_all_tests(test_reference_mode = False, write_reference=False):
     #kgs.debugging_mode = 3
     #kgs.profiling=False
     #seis_forward.reference_mode = False
     data = kgs.load_all_train_data()
+
+    for d in data[::-1000]:
+        test_to_reference(d,write_reference=write_reference)
+    
 
     test_stuff_on_one_case(data[2059], 1e-4, test_reference_mode=test_reference_mode)
     test_stuff_on_one_case(data[-1001], 1e-4, test_reference_mode=test_reference_mode)

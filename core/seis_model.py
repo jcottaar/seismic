@@ -66,10 +66,12 @@ class ModelSplit(kgs.Model):
             if kpi_Style_A<np.exp(15):
                 if not data.family=='test':
                     assert data.family=='Style_A'
+                data = self.model_Style_A.infer([data])[0]
+                data.do_not_cache=True                
             else:
                 if not data.family=='test':
                     assert 'FlatVel' not in data.family and not data.family=='Style_A'
-            data.do_not_cache=True
+                data.do_not_cache=True
             pass
         return data
 

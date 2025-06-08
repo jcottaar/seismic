@@ -47,6 +47,7 @@ else:
 profiling = False
 debugging_mode = 2
 verbosity = 1
+disable_caching = False
 
 match env:
     case 'local':
@@ -435,12 +436,12 @@ def infer_internal_single_parallel(data):
     try:
         global model_parallel
         if model_parallel is None:
-            model_parallel= dill_load(temp_dir+'parallel.pickle')
+            model_parallel,disable_caching = dill_load(temp_dir+'parallel.pickle')
         if data.seismogram.data is None:
             data.seismogram.load_to_memory()
         return_data = model_parallel._infer_single(data)
         return_data.seismogram.unload()
-        if model_parallel.write_cache and not return_data.do_not_cache: # will be done later too, but in case we error out later...
+        if model_parallel.write_cache and not return_data.do_not_cache and not disable_caching: # will be done later too, but in case we error out later...
             this_cache_dir = cache_dir_write+model_parallel.cache_name+'/'
             os.makedirs(this_cache_dir,exist_ok=True)
             dill_save(this_cache_dir+return_data.cache_name(), return_data.velocity_guess)
@@ -494,7 +495,7 @@ class Model(BaseClass):
         assert self.state == 1
         test_data = copy.deepcopy(test_data)
 
-        if self.read_cache:
+        if self.read_cache and not disable_caching:
             this_cache_dir = cache_dir_read+self.cache_name+'/'
             files = set([os.path.basename(x) for x in glob.glob(this_cache_dir+'/*')])
             cached = []
@@ -521,7 +522,7 @@ class Model(BaseClass):
             else:
                 test_data_inferred = []
 
-        if self.read_cache:
+        if self.read_cache and not disable_caching:
             b_it = iter(test_data_cached)
             c_it = iter(test_data_inferred)        
             test_data = [
@@ -535,7 +536,7 @@ class Model(BaseClass):
             t.seismogram.unload()
             t.check_constraints()
 
-        if self.write_cache:
+        if self.write_cache and not disable_caching:
             this_cache_dir = cache_dir_write+self.cache_name+'/'
             os.makedirs(this_cache_dir,exist_ok=True)
             for d in test_data_inferred:
@@ -551,7 +552,7 @@ class Model(BaseClass):
                 t.unload()
             claim_gpu('')
             with multiprocess.Pool(recommend_n_workers()) as p:
-                dill_save(temp_dir+'parallel.pickle', self)
+                dill_save(temp_dir+'parallel.pickle', (self,disable_caching))
                 #result = p.starmap(infer_internal_single_parallel, zip(test_data))            
                 result = list(tqdm(
                     p.imap(infer_internal_single_parallel, test_data),
@@ -566,7 +567,7 @@ class Model(BaseClass):
                     x.seismogram.load_to_memory()
                 x = self._infer_single(x)
                 x.seismogram.unload()       
-                if self.write_cache and not x.do_not_cache: # will be done later too, but in case we error out later...
+                if self.write_cache and not x.do_not_cache and not disable_caching: # will be done later too, but in case we error out later...
                     this_cache_dir = cache_dir_write+self.cache_name+'/'
                     os.makedirs(this_cache_dir,exist_ok=True)
                     dill_save(this_cache_dir+x.cache_name(), x.velocity_guess)

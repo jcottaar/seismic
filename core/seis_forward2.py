@@ -20,6 +20,7 @@ def reset_profile():
 def profile(name):
     if profiling:
         cp.cuda.Stream.null.synchronize()
+        stream.synchronize()
         global profile_time
         global profile_vals
         time_diff = time.time()-profile_time
@@ -39,11 +40,11 @@ graph_diff = 0
 graph_adjoint = 0
 
 #@kgs.profile_each_line
-def vel_to_seis(vec, vec_diff=None, vec_adjoint=None, adjoint_on_residual=False):
+def vel_to_seis(vec, vec_diff=None, vec_adjoint=None, adjoint_on_residual=False, adjoint_on_diff = False):
     # Outputs:
     # result: the seismogram associated with velocity field vec
     # result_diff: J@vec_diff, where J is the Jacobian of the operation above
-    # result_adjoint: J^T@vec_adjoint, or J^T@(result-vec_adjoint) if adjoint_on_residual=True
+    # result_adjoint: J^T@vec_adjoint, or J^T@(result-vec_adjoint) if adjoint_on_residual=True, or J^T@J@vec if adjoint_on_diff is True
     profile('start')
     assert vec.shape == (4901,1)
     assert vec_adjoint is None or vec_adjoint.shape == (5*999*70,1)
@@ -53,6 +54,7 @@ def vel_to_seis(vec, vec_diff=None, vec_adjoint=None, adjoint_on_residual=False)
     assert vec.dtype == kgs.base_type_gpu
     assert vec_diff is None or vec_diff.dtype == kgs.base_type_gpu
     assert vec_adjoint is None or vec_adjoint.dtype == kgs.base_type_gpu
+    assert not (adjoint_on_residual and adjoint_on_diff)
 
     profile('init')
 
@@ -194,6 +196,8 @@ def vel_to_seis(vec, vec_diff=None, vec_adjoint=None, adjoint_on_residual=False)
                 p_complete_adjoint[...] = 0
                 if adjoint_on_residual:
                     p_complete_adjoint[2:,igz_dev,igx_dev] = seis_combined[i_source,...]-seis_combined_adjoint[i_source,...]
+                elif adjoint_on_diff:
+                    p_complete_adjoint[2:,igz_dev,igx_dev] = seis_combined_diff[i_source,...]
                 else:
                     p_complete_adjoint[2:,igz_dev,igx_dev] = seis_combined_adjoint[i_source,...]
 
@@ -253,7 +257,7 @@ def vel_to_seis(vec, vec_diff=None, vec_adjoint=None, adjoint_on_residual=False)
                 #                 src_idx_dev
                 #             )
                 #             )
-                stream.synchronize()
+                #stream.synchronize()
                 profile('time loop adjoint')
         
                 #bdt_adjoint[...] = cp.sum(s_mod_adjoint*cp.array(s))
