@@ -19,6 +19,7 @@ matplotlib.rcParams['animation.html'] = 'jshtml'
 def do_diagnostics_run(data, model, do_which_list, param_func, param_values, param_name, help_fac=0.0):
     model.check_constraints()
     model.run_in_parallel = False
+    model.train([],[])
     data.load_to_memory()
 
     _,ax = plt.subplots(1,2,figsize=(10,4))
