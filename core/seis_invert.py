@@ -10,7 +10,7 @@ from dataclasses import dataclass, field, fields
 import matplotlib.pyplot as plt
 
 profiling=False
-
+last_t=time.time()
 @kgs.profile_each_line
 def cost_and_gradient(x, target, prior, basis_functions, compute_gradient=False):
 
