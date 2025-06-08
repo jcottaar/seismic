@@ -10,12 +10,14 @@ import copy
 from dataclasses import dataclass, field, fields
 import matplotlib.pyplot as plt
 
+test_mode = False # if True makes faster models
+
 def model_FlatVel():
     model = seis_invert.InversionModel()
     model.prior = seis_prior.RowTotalVariation()
     model.prior.λ = 1e-8
     model.prior.epsilon = 0.1
-    model.iter_list = [10000]
+    model.iter_list = [10000] if not test_mode else [30]
 
     model.cache_name = 'FlatVel'
     model.write_cache = True
@@ -24,7 +26,7 @@ def model_FlatVel():
 
 def model_Style_A():
     model = seis_invert.InversionModel()
-    model.iter_list = [10]
+    model.iter_list = [10] if not test_mode else [50,-50]
     print('too low')
     
     model.prior = seis_prior.SquaredExponential()
@@ -37,16 +39,36 @@ def model_Style_A():
     model.read_cache = True
     return model
 
+def model_Style_B():
+    print('styleB not active yet')
+    model = seis_invert.InversionModel()
+    model.iter_list = [1000]
+    
+    model.prior = seis_prior.SquaredExponential()
+    model.prior.length_scale = 1.96
+    model.prior.sigma = 158
+    model.prior.noise = 58
+    model.prior.sigma_mean = 1239
+    model.prior.sigma_slope = 92
+    model.prior.transform = False
+
+    model.cache_name = 'Style_B'
+    model.write_cache = True
+    model.read_cache = True
+    return model
+
 @dataclass
 class ModelSplit(kgs.Model):
     model_FlatVel: kgs.Model = field(init=True, default_factory = model_FlatVel)
     model_Style_A: kgs.Model = field(init=True, default_factory = model_Style_A)
+    model_Style_B: kgs.Model = field(init=True, default_factory = model_Style_B)
 
     P_identify_style_A = 0
 
     def _train(self, train_data, validation_data):
         self.model_FlatVel.train(train_data, validation_data)
         self.model_Style_A.train(train_data, validation_data)
+        self.model_Style_B.train(train_data, validation_data)
         prior_style_A = copy.deepcopy(self.model_Style_A.prior)
         prior_style_A.transform = False
         prior_style_A.basis_functions() # prep

@@ -5,3 +5,6 @@ analysis/yolov8m.pt
 *.pt
 analysis/play_with_preprocessing.ipynb
 matlab/J.mat
+analysis/run_diagnosticsStyleB.ipynb
+analysis/run_diagnosticsStyleB-Copy1.ipynb
+analysis/run_diagnosticsStyleB-Copy2.ipynb

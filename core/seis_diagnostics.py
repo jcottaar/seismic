@@ -58,8 +58,7 @@ def do_diagnostics_run(data, model, do_which_list, param_func, param_values, par
         #print(f"{param_name}={v}")
         plt.pause(0.001)
         this_model = param_func(copy.deepcopy(model), v)
-        this_model.write_cache = False
-        this_model.read_cache = False
+        kgs.disable_caching = True
 
         names = []
         for i_which in range(len(do_which_list)):            

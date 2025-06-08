@@ -435,6 +435,7 @@ model_parallel = None
 def infer_internal_single_parallel(data):    
     try:
         global model_parallel
+        global disable_caching
         if model_parallel is None:
             model_parallel,disable_caching = dill_load(temp_dir+'parallel.pickle')
         if data.seismogram.data is None:

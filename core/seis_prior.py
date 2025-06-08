@@ -80,6 +80,68 @@ class RowTotalVariation(Prior):
 
 
 @dataclass
+class TotalVariation(Prior):
+    epsilon: float = field(init=True, default=0.1)
+
+    def __post_init__(self):
+        # Mark the object as frozen after initialization        
+        super().__post_init__()
+        self.N = 4901
+        self.λ = 1e-8
+    
+    def _basis_functions(self):
+        basis_vectors=cp.eye(4901, dtype=kgs.base_type_gpu)
+        return basis_vectors
+
+    def _compute_cost_and_gradient(self, x, compute_gradient):
+    
+        # reshape input (excluding last element if used for something else)
+        x_mat = cp.reshape(x[:-1], (70, 70))
+        # forward differences
+        diff1 = cp.diff(x_mat, axis=0)    # shape (69,70)
+        diff2 = cp.diff(x_mat, axis=1)    # shape (70,69)
+        # flatten and concatenate
+        d1_flat = diff1.ravel()
+        d2_flat = diff2.ravel()
+        diff = cp.concatenate((d1_flat, d2_flat))  # shape (N_diff,)
+    
+        # cost per element and total cost
+        cost_per_item = cp.sqrt(diff**2 + self.epsilon**2)
+        cost = cp.mean(cost_per_item)
+    
+        if compute_gradient:
+            # number of diff elements
+            N = diff.size
+            # split cost_per_item back to match diff1 and diff2
+            c1 = cost_per_item[:d1_flat.size]
+            c2 = cost_per_item[d1_flat.size:]
+            # gradient w.r.t. diff elements (chain through sqrt and mean)
+            g1 = (d1_flat / c1) / N
+            g2 = (d2_flat / c2) / N
+            # reshape
+            g1_mat = g1.reshape(diff1.shape)
+            g2_mat = g2.reshape(diff2.shape)
+    
+            # backprop to x_mat
+            grad_mat = cp.zeros_like(x_mat)
+            # axis 0 diffs: + at i+1, - at i
+            grad_mat[1:, :] += g1_mat
+            grad_mat[:-1, :] -= g1_mat
+            # axis 1 diffs: + at j+1, - at j
+            grad_mat[:, 1:] += g2_mat
+            grad_mat[:, :-1] -= g2_mat
+    
+            # flatten and append zero gradient for last element
+            grad_vec = cp.concatenate((grad_mat.ravel(), cp.array([0], dtype=grad_mat.dtype)))
+            gradient = grad_vec.reshape(x.shape)
+        else:
+            gradient = None
+    
+        return cost, gradient
+
+
+
+@dataclass
 class SquaredExponential(Prior):
     length_scale = np.log(32.4)
     noise = 0.1

@@ -85,6 +85,7 @@ def test_cost(data, prior):
 
 def test_to_reference(d, write_reference=False):
     print(d.family)
+    seis_model.test_mode = True
     model = seis_model.default_model()
     kgs.disable_caching = True
     result = model.infer([d])[0]
@@ -97,6 +98,7 @@ def test_to_reference(d, write_reference=False):
     else:
         assert kgs.rms(result.velocity_guess.data - ref.velocity_guess.data)<2
     kgs.disable_caching = False
+    seis_model.test_mode = False
     
 
 def run_all_tests(test_reference_mode = False, write_reference=False):
@@ -107,13 +109,15 @@ def run_all_tests(test_reference_mode = False, write_reference=False):
 
     for d in data[::-1000]:
         test_to_reference(d,write_reference=write_reference)
-    
+
+    test_prior(seis_prior.TotalVariation())
+    test_prior(seis_prior.SquaredExponential())
+    test_prior(seis_prior.RowTotalVariation())
 
     test_stuff_on_one_case(data[2059], 1e-4, test_reference_mode=test_reference_mode)
     test_stuff_on_one_case(data[-1001], 1e-4, test_reference_mode=test_reference_mode)
 
-    test_prior(seis_prior.SquaredExponential())
-    test_prior(seis_prior.RowTotalVariation())
+    
     
     
     
