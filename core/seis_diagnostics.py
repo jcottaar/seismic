@@ -96,16 +96,28 @@ def do_diagnostics_run(data, model, do_which_list, param_func, param_values, par
         plt.legend(names)
         plt.suptitle(f"{param_name}={v}")
 
-        _,ax = plt.subplots(1,len(names),figsize=(5*len(names),4))
-        for i_plot in range(len(names)):
-            if len(names)>1:
-                plt.sca(ax[i_plot])
-            plt.imshow(results[-1][i_plot].velocity_guess.data-vel_true_np.data)
-            plt.colorbar()
-            plt.title(names[i_plot])
-        plt.suptitle(f"{param_name}={v}")
+        # _,ax = plt.subplots(1,len(names),figsize=(5*len(names),4))
+        # for i_plot in range(len(names)):
+        #     if len(names)>1:
+        #         plt.sca(ax[i_plot])
+        #     plt.imshow(results[-1][i_plot].velocity_guess.data-vel_true_np.data)
+        #     plt.colorbar()
+        #     plt.title(names[i_plot])
+        # plt.suptitle(f"{param_name}={v}")
         
         plt.pause(0.001)
+
+    # Plot convergence behavior for all batches
+    _,ax = plt.subplots(1,3,figsize=(15,4))
+    for i_plot in range(3):
+        plt.sca(ax[i_plot])
+        plt.xlabel('Function evaluations')
+        plt.ylabel(plot_names[i_plot])
+        plt.grid(True)
+        for rr in results:
+            plt.semilogy(rr[-1].diagnostics['seis_to_vel'][plot_fields[i_plot]])            
+    plt.legend(param_values)
+    plt.title(names[-1])
 
     # Plot results for all batches
     _,ax = plt.subplots(1,3,figsize=(15,4))

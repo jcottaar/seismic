@@ -78,7 +78,7 @@ class InversionModel(kgs.Model):
             if self.show_convergence:
                 xx = x[:,None]+x_guess
                 cost,cost_prior, cost_residual = cost_and_gradient(xx, target, self.prior, basis_functions, compute_gradient=False)
-                for ii in range(maxiter//2):
+                for ii in range(maxiter):
                     if not true_vel is None:
                         diagnostics['vel_error_per_fev'].append(cp.asnumpy(kgs.rms(basis_functions@xx-true_vel.to_vector())))
                     diagnostics['seis_error_per_fev'].append(cp.asnumpy(cost_residual))
@@ -191,7 +191,7 @@ class InversionModel(kgs.Model):
         data.velocity_guess.to_cupy()       
         for maxiter in self.iter_list:
             if maxiter<0:
-                data.velocity_guess, diagnostics = self.seis_to_vel_gn(data.seismogram, data.velocity_guess, diagnostics, maxiter=maxiter)
+                data.velocity_guess, diagnostics = self.seis_to_vel_gn(data.seismogram, data.velocity_guess, diagnostics, maxiter=-maxiter)
             else:
                 data.velocity_guess, diagnostics = self.seis_to_vel_lbfgs(data.seismogram, data.velocity_guess, diagnostics, maxiter=maxiter)
         if self.show_convergence:
