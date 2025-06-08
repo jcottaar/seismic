@@ -15,6 +15,7 @@ def model_FlatVel():
     model.prior = seis_prior.RowTotalVariation()
     model.prior.λ = 1e-8
     model.prior.epsilon = 0.1
+    model.iter_list = [10000]
 
     model.cache_name = 'FlatVel'
     model.write_cache = True
@@ -23,14 +24,13 @@ def model_FlatVel():
 
 def model_Style_A():
     model = seis_invert.InversionModel()
-    model.maxiter = 10
+    model.iter_list = [10]
     print('too low')
     
     model.prior = seis_prior.SquaredExponential()
     model.prior.transform = True
     model.prior.svd_cutoff = 1.
     model.prior.λ = 10**-11
-    model.do_gn=False
 
     model.cache_name = 'Style_A'
     model.write_cache = True
