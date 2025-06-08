@@ -138,6 +138,7 @@ def check_model_accuracy(model, subsample):
             plt.sca(ax[0])
             plt.imshow(d.velocity_guess.data - cp.asnumpy(d.velocity.data))
             plt.colorbar()
+            plt.title(score)
             plt.sca(ax[1])
             plt.imshow(cp.asnumpy(d.velocity.data))
             plt.colorbar()
