@@ -65,13 +65,16 @@ class ModelSplit(kgs.Model):
     P_identify_style_A = 0
 
     def _train(self, train_data, validation_data):
+        prior_style_A = copy.deepcopy(self.model_Style_A.prior)
+        prior_style_A.prepped = False
+        prior_style_A.transform = False
+        prior_style_A.prep()
+        self.P_identify_style_A = prior_style_A.P
+        
         self.model_FlatVel.train(train_data, validation_data)
         self.model_Style_A.train(train_data, validation_data)
         self.model_Style_B.train(train_data, validation_data)
-        prior_style_A = copy.deepcopy(self.model_Style_A.prior)
-        prior_style_A.transform = False
-        prior_style_A.basis_functions() # prep
-        self.P_identify_style_A = prior_style_A.P
+        
 
     def _infer_single(self, data):
         kpi_FlatVel = kgs.rms(data.seismogram.data[0,...] - cp.flip(data.seismogram.data[4,...],axis=1))

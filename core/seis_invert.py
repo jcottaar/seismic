@@ -50,13 +50,15 @@ class InversionModel(kgs.Model):
     scaling = 1e15
     maxiter= 2000    
     prec_matrix: object = field(init=True, default_factory = lambda:cp.eye(4901))
+
+    prior_in_use = 0
     
     iter_list = 0
 
     show_convergence = False
 
     def seis_to_vel_gn(self, seismogram, velocity_guess, diagnostics, maxiter=0):
-        basis_functions = self.prior.basis_functions()
+        basis_functions = self.prior.basis_vectors
         
         x_guess = cp.linalg.solve(cp.array(basis_functions.T@basis_functions), basis_functions.T@(velocity_guess.to_vector()))
         x_guess = x_guess.astype(dtype=kgs.base_type)
@@ -100,7 +102,7 @@ class InversionModel(kgs.Model):
         return result, diagnostics
 
     def seis_to_vel_lbfgs(self, seismogram, velocity_guess, diagnostics, maxiter=0):
-        basis_functions = self.prior.basis_functions()        
+        basis_functions = self.prior.basis_vectors
         x_guess = cp.asnumpy(cp.linalg.solve(cp.array(basis_functions.T@basis_functions), basis_functions.T@(velocity_guess.to_vector())))
         x_guess = x_guess.astype(dtype=kgs.base_type)
         target = seismogram.to_vector()
@@ -178,6 +180,7 @@ class InversionModel(kgs.Model):
 
     def _infer_single(self,data):
         global true_vel
+        assert self.prior.prepped
         if data.is_train:
             data.velocity.load_to_memory()
             true_vel = data.velocity
@@ -211,3 +214,6 @@ class InversionModel(kgs.Model):
             data.velocity.unload()
 
         return data
+
+    def _train(self, train_data, validation_data):
+        self.prior.prep()
