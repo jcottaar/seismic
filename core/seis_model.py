@@ -88,7 +88,7 @@ class ModelSplit(kgs.Model):
             vec = vel_cp.to_vector()
             kpi_Style_A = cp.asnumpy(vec[:-1,:].T@(self.P_identify_style_A@vec[:-1,:]))
             #print(kpi_Style_A)
-            if kpi_Style_A<np.exp(15):
+            if kpi_Style_A<np.exp(13):
                 if not data.family=='test':
                     assert data.family=='Style_A'                
                 data = self.model_Style_A.infer([data])[0]             

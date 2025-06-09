@@ -48,6 +48,7 @@ profiling = False
 debugging_mode = 2
 verbosity = 1
 disable_caching = False
+preallocate_matrices = True
 
 match env:
     case 'local':
