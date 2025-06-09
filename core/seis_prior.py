@@ -194,6 +194,7 @@ class SquaredExponential(Prior):
         basis_vectors = cp.eye(4901, dtype=kgs.base_type_gpu)
         if self.transform:
             U,s,_=cp.linalg.svd(K,compute_uv=True)
+            plt.figure();plt.semilogy(s.get());plt.grid(True);plt.pause(0.001)
             to_keep = s>self.svd_cutoff
             basis_vectors = (U[:,to_keep]@cp.diag(cp.sqrt(s[to_keep])))
             basis_vectors = cp.pad(basis_vectors, ((0, 1), (0, 1)), mode='constant', constant_values=0)
