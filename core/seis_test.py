@@ -93,6 +93,7 @@ def test_to_reference(d, model, write_reference=False):
         assert kgs.env=='local'
         kgs.dill_save(kgs.code_dir + '/' + d.family + '_ref.pickle', result)
     ref = kgs.dill_load(kgs.code_dir + '/' + d.family + '_ref.pickle')
+    print( kgs.rms(result.velocity_guess.data - ref.velocity_guess.data))
     if kgs.env=='local':
         assert str(result.velocity_guess.data) == str(ref.velocity_guess.data)
     else:
@@ -107,6 +108,12 @@ def run_all_tests(test_reference_mode = False, write_reference=False):
     #seis_forward.reference_mode = False
     data = kgs.load_all_train_data()
 
+    seis_model.test_mode = True    
+    model = seis_model.default_model()
+    for d in data[::-1000][::-1]:
+        test_to_reference(d,model,write_reference=write_reference)
+    seis_model.test_mode = False
+
     test_prior(seis_prior.TotalVariation())
     test_prior(seis_prior.SquaredExponential())
     test_prior(seis_prior.RowTotalVariation())
@@ -114,11 +121,7 @@ def run_all_tests(test_reference_mode = False, write_reference=False):
     test_stuff_on_one_case(data[2059], 1e-4, test_reference_mode=test_reference_mode)
     test_stuff_on_one_case(data[-1001], 1e-4, test_reference_mode=test_reference_mode)
     
-    seis_model.test_mode = True    
-    model = seis_model.default_model()
-    for d in data[::-1000]:
-        test_to_reference(d,model,write_reference=write_reference)
-    seis_model.test_mode = False
+    
 
     
 

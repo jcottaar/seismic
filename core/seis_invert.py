@@ -59,7 +59,7 @@ class InversionModel(kgs.Model):
     show_convergence = False
 
     def seis_to_vel_gn(self, seismogram, velocity_guess, diagnostics, maxiter=0):
-        basis_functions = self.prior.basis_vectors
+        basis_functions = self.prior_in_use.basis_vectors
         
         x_guess = cp.linalg.solve(cp.array(basis_functions.T@basis_functions), basis_functions.T@(velocity_guess.to_vector()))
         x_guess = x_guess.astype(dtype=kgs.base_type)
@@ -68,12 +68,12 @@ class InversionModel(kgs.Model):
 
         N = len(target)
         rhs = -basis_functions.T@seis_forward2.vel_to_seis(basis_functions@x_guess, vec_adjoint=target, adjoint_on_residual=True)[2]/N # basis_functions.T@J.T@(target-vel_guess)
-        rhs = rhs - np.concatenate( (self.prior.λ*self.prior.P@x_guess[:-1,:],cp.zeros((1,1),dtype=kgs.base_type_gpu)),axis=0)
+        rhs = rhs - np.concatenate( (self.prior_in_use.λ*self.prior_in_use.P@x_guess[:-1,:],cp.zeros((1,1),dtype=kgs.base_type_gpu)),axis=0)
                
         def A(x):
             x = x[:,None]
             v1 = seis_forward2.vel_to_seis(vec, vec_diff=basis_functions@x, vec_adjoint = target, adjoint_on_diff=True)[2]
-            res = np.concatenate( (self.prior.λ*self.prior.P@x[:-1,:],cp.zeros((1,1),dtype=kgs.base_type_gpu)),axis=0)+ basis_functions.T@v1/N
+            res = np.concatenate( (self.prior_in_use.λ*self.prior_in_use.P@x[:-1,:],cp.zeros((1,1),dtype=kgs.base_type_gpu)),axis=0)+ basis_functions.T@v1/N
             res = res[:,0]
             return res
 
@@ -90,7 +90,7 @@ class InversionModel(kgs.Model):
             
         
         import cupyx.scipy.sparse.linalg
-        AA=cupyx.scipy.sparse.linalg.LinearOperator( (self.prior.N,self.prior.N), A)        
+        AA=cupyx.scipy.sparse.linalg.LinearOperator( (self.prior_in_use.N,self.prior_in_use.N), A)        
         res_inv=cupyx.scipy.sparse.linalg.gmres(AA,rhs,maxiter=maxiter,restart=maxiter)[0]
         callback(0*res_inv)
         callback(res_inv)
@@ -103,16 +103,16 @@ class InversionModel(kgs.Model):
         return result, diagnostics
 
     def seis_to_vel_lbfgs(self, seismogram, velocity_guess, diagnostics, maxiter=0):
-        basis_functions = self.prior.basis_vectors
+        basis_functions = self.prior_in_use.basis_vectors
         x_guess = cp.asnumpy(cp.linalg.solve(cp.array(basis_functions.T@basis_functions), basis_functions.T@(velocity_guess.to_vector())))
         x_guess = x_guess.astype(dtype=kgs.base_type)
         target = seismogram.to_vector()
-    
+         
         def cost_and_gradient_func(x):
             global last_t            
             start_t=time.time()
             xx = cp.array(x,dtype=kgs.base_type_gpu)[:,None]
-            cost,gradient,cost_prior, cost_residual = cost_and_gradient(xx, target, self.prior, basis_functions, compute_gradient=True)
+            cost,gradient,cost_prior, cost_residual = cost_and_gradient(xx, target, self.prior_in_use, basis_functions, compute_gradient=True)
             if not true_vel is None:
                 #print(cost, kgs.rms(basis_functions@cp.array(x[:,None])-true_vel.to_vector()))
                 diagnostics['vel_error_per_fev'].append(cp.asnumpy(cp.mean(cp.abs(basis_functions@xx-true_vel.to_vector()))))
@@ -182,6 +182,7 @@ class InversionModel(kgs.Model):
     def _infer_single(self,data):
         global true_vel
         assert self.prior.prepped
+        self.prior_in_use = copy.deepcopy(self.prior)
         if data.is_train:
             data.velocity.load_to_memory()
             true_vel = data.velocity

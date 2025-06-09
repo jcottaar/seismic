@@ -414,6 +414,7 @@ def load_all_train_data(validation_only = False):
 def load_all_test_data():
     files = glob.glob(data_dir + '/test/*')
     files.sort()
+    #np.random.default_rng(seed=0).shuffle(files)
     data_list = []
     base_data = Data()
     base_data.is_train = False
