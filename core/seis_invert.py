@@ -14,11 +14,15 @@ last_t=time.time()
 @kgs.profile_each_line
 def cost_and_gradient(x, target, prior, basis_functions, compute_gradient=False):
 
+    print(prior.λ)
+
     # Prior part
     if compute_gradient:
         cost_prior, gradient_prior = prior.compute_cost_and_gradient(x, compute_gradient=True)
     else:
         cost_prior = prior.compute_cost_and_gradient(x, compute_gradient=False)
+
+    print(cost_prior)
 
     cp.cuda.Stream.null.synchronize()
 
@@ -55,6 +59,7 @@ class InversionModel(kgs.Model):
     prior_in_use = 0
     
     iter_list = 0
+    lambda_list: object = field(init=True, default_factory=list)
 
     show_convergence = False
 
@@ -194,7 +199,9 @@ class InversionModel(kgs.Model):
         diagnostics['total_cost_per_fev'] = []
         diagnostics['x'] = []
         data.velocity_guess.to_cupy()       
-        for maxiter in self.iter_list:
+        for imi, maxiter in enumerate(self.iter_list):
+            if len(self.lambda_list)>imi:
+                self.prior_in_use.λ = self.lambda_list[imi]
             if maxiter<0:
                 data.velocity_guess, diagnostics = self.seis_to_vel_gn(data.seismogram, data.velocity_guess, diagnostics, maxiter=-maxiter)
             else:

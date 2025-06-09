@@ -16,6 +16,7 @@ def model_FlatVel():
     model = seis_invert.InversionModel()
     model.prior = seis_prior.RowTotalVariation()
     model.prior.λ = 1e-8
+    model.lambda_list = [1e-8]
     model.prior.epsilon = 0.1
     model.iter_list = [10000] if not test_mode else [30]
 
