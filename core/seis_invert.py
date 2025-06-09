@@ -14,15 +14,11 @@ last_t=time.time()
 @kgs.profile_each_line
 def cost_and_gradient(x, target, prior, basis_functions, compute_gradient=False):
 
-    print(prior.λ)
-
     # Prior part
     if compute_gradient:
         cost_prior, gradient_prior = prior.compute_cost_and_gradient(x, compute_gradient=True)
     else:
         cost_prior = prior.compute_cost_and_gradient(x, compute_gradient=False)
-
-    print(cost_prior)
 
     cp.cuda.Stream.null.synchronize()
 

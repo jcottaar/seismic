@@ -58,6 +58,9 @@ def model_Style_B():
     model.read_cache = True
     return model
 
+StyleAseen=0
+StyleBseen=0
+FlatVelseen= 0
 @dataclass
 class ModelSplit(kgs.Model):
     model_FlatVel: kgs.Model = field(init=True, default_factory = model_FlatVel)
@@ -79,23 +82,31 @@ class ModelSplit(kgs.Model):
         
 
     def _infer_single(self, data):
+        global StyleAseen, StyleBseen, FlatVelseen
         kpi_FlatVel = kgs.rms(data.seismogram.data[0,...] - cp.flip(data.seismogram.data[4,...],axis=1))
         if kpi_FlatVel<1e-4:
             # FlatVel
             data = self.model_FlatVel.infer([data])[0]
+            FlatVelseen+=1
         else:
             vel_cp = copy.deepcopy(data.velocity_guess)
             vel_cp.to_cupy()
             vec = vel_cp.to_vector()
             kpi_Style_A = cp.asnumpy(vec[:-1,:].T@(self.P_identify_style_A@vec[:-1,:]))
-            #print(kpi_Style_A)
+            #print(kpi_Style_A)            
             if kpi_Style_A<np.exp(13):
                 if not data.family=='test':
                     assert data.family=='Style_A'                
-                data = self.model_Style_A.infer([data])[0]             
+                data = self.model_Style_A.infer([data])[0] 
+                StyleAseen+=1
+            elif kpi_style_B(vel_cp.data)<95:
+                if not data.family=='test':
+                    assert data.family=='Style_B'   
+                data.do_not_cache=True
+                StyleBseen+=1
             else:
                 if not data.family=='test':
-                    assert 'FlatVel' not in data.family and not data.family=='Style_A'
+                    assert not 'FlatVel' in data.family and not 'Style' in data.family
                 data.do_not_cache=True
             pass
         return data
@@ -115,6 +126,11 @@ def default_model():
     model.train([], []) # dummy
 
     return model
+
+def kpi_style_B(vel):
+    vals = np.round(vel/3)
+    _,counts = cp.unique(vals,return_counts=True)
+    return cp.max(counts).get()
 
 def submission_model():
     model = default_model()
