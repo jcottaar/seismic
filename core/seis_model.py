@@ -4,6 +4,7 @@ import kaggle_support as kgs
 import seis_forward2
 import seis_prior
 import seis_invert
+import seis_numerics
 import seis_nn
 import scipy
 import copy
@@ -121,8 +122,13 @@ class ModelSplit(kgs.Model):
             else:
                 if not data.family=='test':
                     assert not 'FlatVel' in data.family and not 'Style' in data.family
-                data = self.model_TV2D.infer([data])[0]     
-                data.do_not_cache=True
+                if kpi_fault_A(data.velocity_guess.data)>4100:
+                    print('Skipped an easy TV2D')
+                    # probably FlatFault_A or CurveFault_A; these are really good already
+                    data.do_not_cache=True
+                else:                
+                    data = self.model_TV2D.infer([data])[0]   
+                    data.do_not_cache=True
             pass
         return data
 
@@ -152,6 +158,15 @@ def kpi_style_B(vel):
     vals = np.round(vel/3)
     _,counts = cp.unique(vals,return_counts=True)
     return cp.max(counts).get()
+
+def kpi_fault_A(mat):
+    labels,count = seis_numerics.label_thresholded_components(mat, 10, connectivity=4)
+    _,counts = np.unique(labels, return_counts=True)
+    counts=np.sort(counts)
+    if len(counts)==1:
+        return 4900
+    else:
+        return counts[-1]+counts[-2]
 
 def submission_model():
     model = default_model()
