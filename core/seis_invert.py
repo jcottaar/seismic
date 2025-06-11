@@ -59,6 +59,8 @@ class InversionModel(kgs.Model):
 
     show_convergence = False
 
+    _start_time = 0
+
     def seis_to_vel_gn(self, seismogram, velocity_guess, diagnostics, maxiter=0):
         basis_functions = self.prior_in_use.basis_vectors
         
@@ -86,7 +88,8 @@ class InversionModel(kgs.Model):
                     if not true_vel is None:
                         diagnostics['vel_error_per_fev'].append(cp.asnumpy(cp.mean(cp.abs((basis_functions@xx-true_vel.to_vector())))))
                     diagnostics['seis_error_per_fev'].append(cp.asnumpy(cost_residual))
-                    diagnostics['total_cost_per_fev'].append(cp.asnumpy(cost))                    
+                    diagnostics['total_cost_per_fev'].append(cp.asnumpy(cost))       
+                    diagnostics['time_per_fev'].append(time.time()-self._start_time)
                     diagnostics['x'].append(cp.asnumpy(basis_functions@xx))
             
         
@@ -119,6 +122,7 @@ class InversionModel(kgs.Model):
                 diagnostics['vel_error_per_fev'].append(cp.asnumpy(cp.mean(cp.abs(basis_functions@xx-true_vel.to_vector()))))
             diagnostics['seis_error_per_fev'].append(cp.asnumpy(cost_residual))
             diagnostics['total_cost_per_fev'].append(cp.asnumpy(cost))
+            diagnostics['time_per_fev'].append(time.time()-self._start_time)
             if self.show_convergence:
                 diagnostics['x'].append(cp.asnumpy(basis_functions@xx))
             cost = cost*self.scaling
@@ -184,17 +188,21 @@ class InversionModel(kgs.Model):
         global true_vel
         assert self.prior.prepped
         self.prior_in_use = copy.deepcopy(self.prior)
+        self.prior_in_use.adapt(data.velocity_guess)
+        print(self.prior_in_use.basis_vectors.shape)
         if data.is_train:
             data.velocity.load_to_memory()
             true_vel = data.velocity
         else:
             true_vel = None
         diagnostics = dict()
+        diagnostics['time_per_fev'] = []
         diagnostics['vel_error_per_fev'] = []
         diagnostics['seis_error_per_fev'] = []
         diagnostics['total_cost_per_fev'] = []
         diagnostics['x'] = []
         data.velocity_guess.to_cupy()       
+        self._start_time = time.time()
         for imi, maxiter in enumerate(self.iter_list):
             if len(self.lambda_list)>imi:
                 self.prior_in_use.λ = self.lambda_list[imi]

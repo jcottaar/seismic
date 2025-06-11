@@ -3,6 +3,10 @@ import cupy as cp
 import kaggle_support as kgs
 from dataclasses import dataclass, field, fields
 import matplotlib.pyplot as plt
+import seis_numerics
+import scipy.linalg
+import cupyx.scipy.ndimage
+import cupyx.scipy.linalg
 
 @dataclass
 class Prior(kgs.BaseClass):
@@ -21,6 +25,15 @@ class Prior(kgs.BaseClass):
         self.prepped = True
         assert self.basis_vectors.dtype == kgs.base_type_gpu
         assert self.basis_vectors.shape == (4901, self.N)
+
+    def adapt(self, velocity_guess_np):
+        assert self.prepped
+        self._adapt(velocity_guess_np)
+        assert self.basis_vectors.dtype == kgs.base_type_gpu
+        assert self.basis_vectors.shape == (4901, self.N)
+
+    def _adapt(self, velocity_guess_np):
+        pass
 
     def compute_cost_and_gradient(self, x, compute_gradient = False):
         assert x.shape == (self.N,1)
@@ -224,3 +237,55 @@ class SquaredExponential(Prior):
             gradient = None
 
         return cost, gradient
+
+@dataclass
+class RestrictFlatAreas(Prior):
+    underlying_prior = 0
+    diff_threshold1 = 1.
+    diff_threshold2 = 30.
+
+    def _prep(self):
+
+        self.underlying_prior.prep()
+        assert(cp.all(self.underlying_prior.basis_vectors==cp.eye(4901)))
+        self.basis_vectors = self.underlying_prior.basis_vectors
+        self.N = 4901
+
+
+    def _adapt(self, velocity_guess_np):
+        mat = velocity_guess_np.data
+        labels,count = seis_numerics.label_thresholded_components(mat, self.diff_threshold1, connectivity=4)
+
+        mat = cp.array(mat)
+        maxx = cupyx.scipy.ndimage.maximum_filter(mat,3)
+        minn = -cupyx.scipy.ndimage.maximum_filter(-mat,3)
+        diff = cp.maximum(cp.abs(mat-maxx), cp.abs(mat-minn))
+        is_diff = (diff>self.diff_threshold2)
+        diff_inds = cp.argwhere(cp.ravel(is_diff)).get()
+    
+    
+        labels = labels.ravel()
+        for i_ind,ind in enumerate(diff_inds):
+            labels[ind] = i_ind+count+1
+    
+        basis_functions = np.zeros((4900,count+len(diff_inds)+1), dtype=kgs.base_type)    
+        for ind in range(4900):
+            basis_functions[ind,labels[ind]]=1.
+        basis_functions = cp.array(basis_functions)
+        basis_functions = basis_functions[:,cp.sum(basis_functions,axis=0)>0]
+
+        self.basis_vectors = cupyx.scipy.linalg.block_diag(basis_functions, cp.array([[1]], dtype=kgs.base_type_gpu))
+        self.basis_vectors = self.basis_vectors/cp.sum(self.basis_vectors,axis=0)
+        self.N = self.basis_vectors.shape[1]
+
+    def _compute_cost_and_gradient(self, x, compute_gradient):
+        underlying_x = self.basis_vectors@x        
+        if compute_gradient:
+            cost, underlying_gradient = self.underlying_prior.compute_cost_and_gradient(underlying_x, compute_gradient)
+            gradient = self.basis_vectors.T@underlying_gradient
+        else:
+            cost = self.underlying_prior.compute_cost_and_gradient(underlying_x, compute_gradient)
+            gradient = None
+        return cost, gradient
+        
+        

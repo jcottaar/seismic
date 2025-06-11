@@ -30,6 +30,7 @@ import shutil
 import subprocess
 import inspect
 import csv
+import portalocker
 from tqdm import tqdm
 
 
@@ -77,6 +78,7 @@ match env:
         brendan_model_dir = '/seismic/models/brendan/'
 os.makedirs(temp_dir, exist_ok=True)
 os.makedirs(cache_dir_write, exist_ok=True)
+timing_filename = temp_dir + 'timings.csv'
 
 # How many workers is optimal for parallel pool?
 def recommend_n_workers():
@@ -436,6 +438,7 @@ General model definition
 model_parallel = None
 def infer_internal_single_parallel(data):    
     try:
+        t=time.time()
         global model_parallel
         global disable_caching
         if model_parallel is None:
@@ -444,6 +447,10 @@ def infer_internal_single_parallel(data):
             data.seismogram.load_to_memory()
         return_data = model_parallel._infer_single(data)
         return_data.seismogram.unload()
+        with portalocker.Lock(timing_filename, mode='a+', timeout=None, newline='') as csvfile:
+            #csvfile.seek(0, os.SEEK_END)
+            writer = csv.writer(csvfile)
+            writer.writerow([data.cache_name(), data.family, time.time()-t])
         if model_parallel.write_cache and not return_data.do_not_cache and not disable_caching: # will be done later too, but in case we error out later...
             this_cache_dir = cache_dir_write+model_parallel.cache_name+'/'
             os.makedirs(this_cache_dir,exist_ok=True)
@@ -551,6 +558,9 @@ class Model(BaseClass):
     def _infer(self, test_data):
         # Subclass must implement this OR _infer_single
         if self.run_in_parallel:
+            with open(timing_filename, "w", newline="") as f:
+                writer = csv.writer(f)
+                writer.writerow(["cache_name","family","time_taken"])
             for t in test_data:
                 t.unload()
             claim_gpu('')

@@ -111,6 +111,12 @@ class ModelSplit(kgs.Model):
             pass
         return data
 
+@dataclass
+class DummyModel(kgs.Model):
+    def _infer_single(self, data):
+        data.do_not_cache = True
+        return data
+
 def default_model():
     model = kgs.ChainedModel()    
     model.models.append(seis_nn.default_pretrained)
@@ -162,4 +168,4 @@ def check_model_accuracy(model, subsample):
             plt.colorbar()
             plt.suptitle(d.cache_name())
             d.unload()
-                
+

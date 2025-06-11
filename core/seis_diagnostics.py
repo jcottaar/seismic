@@ -88,11 +88,11 @@ def do_diagnostics_run(data, model, do_which_list, param_func, param_values, par
         _,ax = plt.subplots(1,3,figsize=(15,4))
         for i_plot in range(3):
             plt.sca(ax[i_plot])
-            plt.xlabel('Function evaluations')
+            plt.xlabel('Time [s]')
             plt.ylabel(plot_names[i_plot])
             plt.grid(True)
             for rr in results[-1]:
-                plt.semilogy(rr.diagnostics['seis_to_vel'][plot_fields[i_plot]])            
+                plt.semilogy(rr.diagnostics['seis_to_vel']['time_per_fev'], rr.diagnostics['seis_to_vel'][plot_fields[i_plot]])            
         plt.legend(names)
         plt.suptitle(f"{param_name}={v}")
 
@@ -111,11 +111,11 @@ def do_diagnostics_run(data, model, do_which_list, param_func, param_values, par
     _,ax = plt.subplots(1,3,figsize=(15,4))
     for i_plot in range(3):
         plt.sca(ax[i_plot])
-        plt.xlabel('Function evaluations')
+        plt.xlabel('Time [s]')
         plt.ylabel(plot_names[i_plot])
         plt.grid(True)
         for rr in results:
-            plt.semilogy(rr[-1].diagnostics['seis_to_vel'][plot_fields[i_plot]])            
+            plt.semilogy(rr[-1].diagnostics['seis_to_vel']['time_per_fev'], rr[-1].diagnostics['seis_to_vel'][plot_fields[i_plot]])            
     plt.legend(param_values)
     plt.title(names[-1])
 

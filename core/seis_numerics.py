@@ -1,4 +1,7 @@
 import cupy as cp
+import numpy as np
+from scipy.sparse.csgraph import connected_components
+from scipy.sparse import lil_matrix
 
 def unpad_edge_padded_gradient(v_adjoint: cp.ndarray, nbc: int) -> cp.ndarray:
     """
@@ -66,3 +69,48 @@ def unpad_edge_padded_gradient(v_adjoint: cp.ndarray, nbc: int) -> cp.ndarray:
     g[-1, -1] += corner_br.sum()
 
     return g
+
+def label_thresholded_components(A: np.ndarray,
+                                   X: float,
+                                   connectivity: int = 4):
+    """
+    Label all components in A where two pixels are neighbors
+    (4- or 8-connectivity) and their absolute difference ≤ X.
+    
+    Returns
+    -------
+    labels : np.ndarray of shape A.shape
+        Integer labels 0…n_labels-1
+    n_labels : int
+        Number of connected components found
+    """
+    H, W = A.shape
+    N = H*W
+
+    # 1) build a sparse adjacency matrix of the grid
+    adj = lil_matrix((N, N), dtype=bool)
+    # choose neighbor offsets
+    if connectivity == 4:
+        neigh = [(1,0),(-1,0),(0,1),(0,-1)]
+    else:  # 8-connectivity
+        neigh = [(1,0),(-1,0),(0,1),(0,-1),
+                 (1,1),(1,-1),(-1,1),(-1,-1)]
+
+    # 2) for each pixel, connect to any neighbor whose diff ≤ X
+    for i in range(H):
+        for j in range(W):
+            idx = i*W + j
+            for di, dj in neigh:
+                ni, nj = i+di, j+dj
+                if 0 <= ni < H and 0 <= nj < W:
+                    if abs(A[ni, nj] - A[i, j]) <= X:
+                        adj[idx, ni*W + nj] = True
+
+    # 3) find the connected components in that graph
+    adj = adj.tocsr()
+    n_labels, flat_labels = connected_components(adj,
+                                                directed=False,
+                                                return_labels=True)
+
+    # 4) reshape back to H×W
+    return flat_labels.reshape(H, W), n_labels
