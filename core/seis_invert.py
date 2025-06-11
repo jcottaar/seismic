@@ -189,7 +189,6 @@ class InversionModel(kgs.Model):
         assert self.prior.prepped
         self.prior_in_use = copy.deepcopy(self.prior)
         self.prior_in_use.adapt(data.velocity_guess)
-        print(self.prior_in_use.basis_vectors.shape)
         if data.is_train:
             data.velocity.load_to_memory()
             true_vel = data.velocity

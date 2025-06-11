@@ -41,7 +41,6 @@ def model_Style_A():
     return model
 
 def model_Style_B():
-    print('styleB not active yet')
     model = seis_invert.InversionModel()
     model.iter_list = [1000]
     
@@ -58,6 +57,19 @@ def model_Style_B():
     model.read_cache = True
     return model
 
+def model_TV2D():
+    model = seis_invert.InversionModel()
+    model.iter_list = [2500] if not test_mode else [75]
+
+    model.prior = seis_prior.TotalVariation()
+    model.prior.λ = 10**-8
+    model.lbfgs_tolerance_grad = 10**3.5
+
+    model.cache_name = 'TV2D'
+    model.write_cache = True
+    model.read_cache = True
+    return model
+
 StyleAseen=0
 StyleBseen=0
 FlatVelseen= 0
@@ -66,6 +78,7 @@ class ModelSplit(kgs.Model):
     model_FlatVel: kgs.Model = field(init=True, default_factory = model_FlatVel)
     model_Style_A: kgs.Model = field(init=True, default_factory = model_Style_A)
     model_Style_B: kgs.Model = field(init=True, default_factory = model_Style_B)
+    model_TV2D   : kgs.Model = field(init=True, default_factory = model_TV2D   )
 
     P_identify_style_A = 0
 
@@ -79,6 +92,7 @@ class ModelSplit(kgs.Model):
         self.model_FlatVel.train(train_data, validation_data)
         self.model_Style_A.train(train_data, validation_data)
         self.model_Style_B.train(train_data, validation_data)
+        self.model_TV2D.train(train_data, validation_data)
         
 
     def _infer_single(self, data):
@@ -107,6 +121,7 @@ class ModelSplit(kgs.Model):
             else:
                 if not data.family=='test':
                     assert not 'FlatVel' in data.family and not 'Style' in data.family
+                data = self.model_TV2D.infer([data])[0]     
                 data.do_not_cache=True
             pass
         return data
