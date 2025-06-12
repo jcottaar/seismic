@@ -128,7 +128,6 @@ class ModelSplit(kgs.Model):
                     data.do_not_cache=True
                 else:                
                     data = self.model_TV2D.infer([data])[0]   
-                    data.do_not_cache=True
             pass
         return data
 

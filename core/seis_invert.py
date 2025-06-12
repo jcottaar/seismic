@@ -3,11 +3,13 @@ import cupy as cp
 import kaggle_support as kgs
 import seis_forward2
 import seis_prior
+import seis_numerics
 import scipy
 import copy
 import time
 from dataclasses import dataclass, field, fields
 import matplotlib.pyplot as plt
+import torch
 
 profiling=False
 last_t=time.time()
@@ -58,6 +60,7 @@ class InversionModel(kgs.Model):
     lambda_list: object = field(init=True, default_factory=list)
 
     show_convergence = False
+    use_new_bfgs = False
 
     _start_time = 0
 
@@ -183,6 +186,44 @@ class InversionModel(kgs.Model):
     
         return result, diagnostics
 
+    def seis_to_vel_lbfgs2(self, seismogram, velocity_guess, diagnostics, maxiter=0):
+        basis_functions = self.prior_in_use.basis_vectors
+        x_guess = cp.asnumpy(cp.linalg.solve(cp.array(basis_functions.T@basis_functions), basis_functions.T@(velocity_guess.to_vector())))
+        x_guess = x_guess.astype(dtype=kgs.base_type)
+        target = seismogram.to_vector()
+         
+        def cost_and_gradient_func(x):
+            global last_t            
+            start_t=time.time()
+            xx = cp.array(x.cpu().numpy(),dtype=kgs.base_type_gpu)[:,None]
+            cost,gradient,cost_prior, cost_residual = cost_and_gradient(xx, target, self.prior_in_use, basis_functions, compute_gradient=True)
+            if not true_vel is None:
+                #print(cost, kgs.rms(basis_functions@cp.array(x[:,None])-true_vel.to_vector()))
+                diagnostics['vel_error_per_fev'].append(cp.asnumpy(cp.mean(cp.abs(basis_functions@xx-true_vel.to_vector()))))
+            diagnostics['seis_error_per_fev'].append(cp.asnumpy(cost_residual))
+            diagnostics['total_cost_per_fev'].append(cp.asnumpy(cost))
+            diagnostics['time_per_fev'].append(time.time()-self._start_time)
+            if self.show_convergence:
+                diagnostics['x'].append(cp.asnumpy(basis_functions@xx))
+            cost = cost*self.scaling
+            gradient = gradient*self.scaling
+            if profiling:               
+                print(f'outside cost_and_gradient_func: {1e3*(start_t-last_t):.2f}')
+                print(f'total iteration time: {1e3*(time.time()-last_t):.2f}')
+                print('')
+            last_t = time.time()
+            return torch.tensor(cp.asnumpy(cost),device='cuda'), torch.tensor(cp.asnumpy(gradient[:,0]),device='cuda')
+
+        result = seis_numerics.bfgs(cost_and_gradient_func, torch.tensor(x_guess[:,0], device='cuda'), maxiter, self.lbfgs_tolerance_grad)
+    
+        # Extract final result
+        final_result = result.detach().cpu().numpy()
+    
+        result = copy.deepcopy(velocity_guess)
+        result.from_vector( basis_functions@cp.array(final_result)[:,None] )
+    
+        return result, diagnostics
+
 
     def _infer_single(self,data):
         global true_vel
@@ -208,7 +249,10 @@ class InversionModel(kgs.Model):
             if maxiter<0:
                 data.velocity_guess, diagnostics = self.seis_to_vel_gn(data.seismogram, data.velocity_guess, diagnostics, maxiter=-maxiter)
             else:
-                data.velocity_guess, diagnostics = self.seis_to_vel_lbfgs(data.seismogram, data.velocity_guess, diagnostics, maxiter=maxiter)
+                if self.use_new_bfgs:
+                    data.velocity_guess, diagnostics = self.seis_to_vel_lbfgs2(data.seismogram, data.velocity_guess, diagnostics, maxiter=maxiter)
+                else:
+                    data.velocity_guess, diagnostics = self.seis_to_vel_lbfgs(data.seismogram, data.velocity_guess, diagnostics, maxiter=maxiter)
         # if self.show_convergence:
         #     x_by_it = []
         #     for x_interm in diagnostics['x'][::np.ceil(len(diagnostics['x'])/100).astype(int)]:
