@@ -326,8 +326,8 @@ def bfgs(cost_and_gradient_func, x0, max_iter, tolerance_grad):
     ro = torch.zeros(max_iter+1, dtype = torch.float64, device='cuda')
     al = torch.zeros(max_iter+1, dtype = torch.float64, device='cuda')
     be = torch.zeros(max_iter+1, dtype = torch.float64, device='cuda')
-    old_dirs = torch.zeros(x.shape[0],max_iter+1, dtype =  torch.float64, device='cuda')
-    old_stps = torch.zeros(x.shape[0],max_iter+1, dtype =  torch.float64, device='cuda')
+    old_dirs = torch.zeros(max_iter+1,x.shape[0], dtype =  torch.float64, device='cuda')
+    old_stps = torch.zeros(max_iter+1,x.shape[0], dtype =  torch.float64, device='cuda')
     # optimize for a max of max_iter iterations
     while n_iter < max_iter:
         # keep track of nb of iterations
@@ -356,8 +356,8 @@ def bfgs(cost_and_gradient_func, x0, max_iter, tolerance_grad):
                 #     ro.pop(0)
 
                 # store new direction/step
-                old_dirs[:,cur_index] = y
-                old_stps[:,cur_index] = s
+                old_dirs[cur_index,:] = y
+                old_stps[cur_index,:] = s
                 ro[cur_index] = 1.0/ys;
                 cur_index+=1
                 #old_dirs.append(y)
@@ -376,12 +376,25 @@ def bfgs(cost_and_gradient_func, x0, max_iter, tolerance_grad):
             #    al = [None] * (max_iter+1)
 
             # iteration in L-BFGS loop collapsed to use just one buffer
+            # q = flat_grad.neg()
+            # #print('1', kgs.rms(q.cpu().numpy()))
+            # #al[:num_old] = torch.mv(old_stps[:, :num_old].t(), q) * ro[:num_old]
+            # #print(old_dirs.dtype, al.dtype, q.dtype)
+            # for i in range(num_old - 1, -1, -1):
+            #    al[i] = old_stps[i,:].dot(q) * ro[i]
+            #    #print(al[i])
+            #    q.add_(old_dirs[i,:], alpha=-al[i])
+            #     #print(al[i], old_dirs[i,1000], old_dirs[i,1000]*al[i], q[1000])
+            #print('1', kgs.rms(q.cpu().numpy()))
             q = flat_grad.neg()
-            #al[:num_old] = torch.mv(old_stps[:, :num_old].t(), q) * ro[:num_old]
-            #print(old_dirs.dtype, al.dtype, q.dtype)
-            for i in range(num_old - 1, -1, -1):
-                al[i] = old_stps[:,i].dot(q) * ro[i]
-                q.add_(old_dirs[:,i], alpha=-al[i])
+            #print('2', kgs.rms(q.cpu().numpy()))
+            lbfgs_backward_torch(old_stps,
+                         old_dirs,
+                         ro,                         
+                         q, al, num_old)
+            #print(q[1000])
+            print('2', kgs.rms(q.cpu().numpy()))
+            #raise 'stop'
             #
             #q -= torch.mv(old_dirs[:, :num_old], al[:num_old])
 
@@ -390,8 +403,8 @@ def bfgs(cost_and_gradient_func, x0, max_iter, tolerance_grad):
             d = r = torch.mul(q, H_diag)
             #be = torch.mv(old_dirs[:, :num_old].t(), r) * ro[:num_old]
             for i in range(num_old):
-                be[i] = old_dirs[:,i].dot(r) * ro[i]
-                r.add_(old_stps[:,i], alpha=al[i] - be[i])
+                be[i] = old_dirs[i,:].dot(r) * ro[i]
+                r.add_(old_stps[i,:], alpha=al[i] - be[i])
             # r = fused_lbfgs_forward(
             #     r,
             #     old_dirs,   # torch.float64, shape [num_old,dim]
@@ -452,93 +465,134 @@ def bfgs(cost_and_gradient_func, x0, max_iter, tolerance_grad):
 
     return x
 
-import torch
-import cupy
-from cupy import RawModule
-
-# ── Helpers: convert back and forth using DLPack ─────────────────────────────
-
-def torch_to_cupy(x: torch.Tensor) -> cupy.ndarray:
-    """Move a CUDA torch.Tensor → CuPy without copy via DLPack."""
-    assert x.is_cuda, "Tensor must be on CUDA"
-    return cupy.fromDlpack(torch.utils.dlpack.to_dlpack(x))
-
-def cupy_to_torch(x: cupy.ndarray) -> torch.Tensor:
-    """Move a CuPy array → torch.Tensor without copy via DLPack."""
-    return torch.utils.dlpack.from_dlpack(x.toDlpack())
-
-# ── Define and compile the RawModule ────────────────────────────────────────
-
-_kernel = r'''
+kernel_code = r'''
+#define DEVICE_ASSERT(cond)                              \
+    do {                                                 \
+        if (!(cond)) {                                   \
+            printf("Assertion `%s` failed at i=%d, tid=%d\n", \
+                   #cond, i, threadIdx.x);               \
+            asm("trap;");   /* illegal instr to kill */ \
+        }                                                \
+    } while (0)
 extern "C" __global__
-void lbfgs_forward(
-    const double* old_dirs, // [num_old, dim]
-    const double* old_stps, // [num_old, dim]
-    const double* al,       // [num_old]
-    const double* ro,       // [num_old]
-    double*       r,        // [dim] (in-place)
-    int           num_old,
-    int           dim
-) {
-    // only thread 0 drives the sequential loop
-    if (threadIdx.x + blockIdx.x * blockDim.x != 0) return;
+void lbfgs_backward(const double* __restrict__ old_stps,
+                    const double* __restrict__ old_dirs,
+                    const double* __restrict__ ro,
+                    double*       __restrict__ q,
+                    double*       __restrict__ al,
+                    int num_old,
+                    int n) {
+    extern __shared__ double sdata[];
+    int tid = threadIdx.x;
+    int block_size = blockDim.x;
+    int chunk = (n + block_size - 1) / block_size;
+    
 
-    for (int i = 0; i < num_old; ++i) {
-        // compute beta = dot(old_dirs[i], r) * ro[i]
-        const double* d_i = old_dirs + size_t(i) * dim;
-        const double* s_i = old_stps + size_t(i) * dim;
-        double beta = 0.0;
-        for (int j = 0; j < dim; ++j) {
-            beta += d_i[j] * r[j];
+    for (int i = num_old - 1; i >= 0; --i) {
+        double local_sum = 0.0f;
+        int base = tid;
+        for (int c = 0; c < chunk; ++c) {
+            int idx = base + c * block_size;
+            if (idx < n) {
+                //DEVICE_ASSERT(not old_stps[i*n+idx]==0);
+                local_sum += old_stps[i * n + idx] * q[idx];
+            }
         }
-        beta *= ro[i];
+        sdata[tid] = local_sum;
+        __syncthreads();
 
-        // r = r + s_i * (al[i] - beta)
-        double coeff = al[i] - beta;
-        for (int j = 0; j < dim; ++j) {
-            r[j] += s_i[j] * coeff;
+        // tree-reduction in shared memory
+        for (int stride = block_size >> 1; stride > 0; stride >>= 1) {
+            if (tid < stride) {
+                sdata[tid] += sdata[tid + stride];
+            }
+            __syncthreads();
         }
+
+        if (tid == 0) {
+            
+            sdata[0] = ro[i] * sdata[0];
+            al[i] = sdata[0];
+            //printf("%.2f\n",al[i]);
+        }
+        __syncthreads();
+
+        double ai = sdata[0];
+        //printf("ai %.2f\n",ai);
+        for (int c = 0; c < chunk; ++c) {
+            int idx = base + c * block_size;
+            if (idx < n) {
+                q[idx] -= ai * old_dirs[i * n + idx];
+            }
+            if (idx==1000) {
+                //printf("%.2f, %.2f, %.2f, %.2f\n",ai, old_dirs[i * n + idx],ai * old_dirs[i * n + idx],q[idx]);
+            }
+        }
+        __syncthreads();
     }
 }
 '''
-_module = RawModule(code=_kernel)
-_lbfgs_forward = _module.get_function('lbfgs_forward')
 
-# ── How to call it in your LBFGS step ──────────────────────────────────────
+module = cp.RawModule(code=kernel_code,
+                      options=('--std=c++11',),
+                      name_expressions=('lbfgs_backward',))
+lbfgs_backward = module.get_function('lbfgs_backward')
 
-def fused_lbfgs_forward(r_t: torch.Tensor,
-                        old_dirs_t: torch.Tensor,
-                        old_stps_t: torch.Tensor,
-                        al_t: torch.Tensor,
-                        ro_t: torch.Tensor,
-                        num_old: int):
+from torch.utils.dlpack import to_dlpack, from_dlpack
+def lbfgs_backward_torch(old_stps: torch.Tensor,
+                         old_dirs: torch.Tensor,
+                         ro: torch.Tensor,
+                         q: torch.Tensor,
+                         al: torch.Tensor, m):
     """
-    Perform the forward L-BFGS recursion on r (torch.Tensor, double, 1D).
-    old_dirs_t / old_stps_t: (num_old, dim) torch.Tensor, dtype=torch.float64
-    al_t, ro_t: (num_old,) torch.Tensor, dtype=torch.float64
+    In-place backward L-BFGS loop on CUDA tensors:
+        for i in range(m-1, -1, -1):
+            al[i] = dot(old_stps[i], q) * ro[i]
+            q     -= al[i] * old_dirs[i]
+    All inputs must be float64 CUDA tensors.
+    old_stps, old_dirs: (m, n)
+    ro, al:             (m,)
+    q:                  (n,)
+    If `al` is None, one will be allocated and returned.
     """
+    # sanity checks
+    assert old_stps.is_cuda and old_dirs.is_cuda and ro.is_cuda and q.is_cuda
+    assert old_stps.dtype == torch.float64 and q.dtype == torch.float64
+    _, n = old_stps.shape
 
-    # 1) Move everything to CuPy (zero-copy via DLPack)
-    r_c    = torch_to_cupy(r_t)
-    dirs_c = torch_to_cupy(old_dirs_t)
-    stps_c = torch_to_cupy(old_stps_t)
-    al_c   = torch_to_cupy(al_t)
-    ro_c   = torch_to_cupy(ro_t)
+    # allocate al if needed
+    # if al is None:
+    #     al = torch.empty((m,), dtype=torch.float64, device=q.device)
+    # else:
+    #     assert al.shape[0] == m and al.dtype == torch.float64 and al.is_cuda
 
-    # 2) Launch kernel with a single thread
-    dim = r_t.numel()
-    _lbfgs_forward(
-        (1,),    # grid
-        (1,),    # block
-        (  dirs_c.ravel(),    # const double*
-           stps_c.ravel(),    # const double*
-           al_c.ravel(),      # const double*
-           ro_c.ravel(),      # const double*
-           r_c.ravel(),       # double* (in-place)
-           num_old,       # int
-           dim            # int
-        )
+    # ensure contiguous
+    #old_stps = old_stps.contiguous()
+    #old_dirs = old_dirs.contiguous()
+    #ro       = ro.contiguous()
+    #q        = q.contiguous()
+    #al       = al.contiguous()
+
+    # zero-copy conversion to CuPy via DLPack
+    old_stps_c = cp.from_dlpack(to_dlpack(old_stps))
+    old_dirs_c = cp.from_dlpack(to_dlpack(old_dirs))
+    ro_c       = cp.from_dlpack(to_dlpack(ro))
+    q_c        = cp.from_dlpack(to_dlpack(q))
+    al_c       = cp.from_dlpack(to_dlpack(al))
+
+    # launch parameters
+    block_size = 1024
+    grid_size  = 1
+    shared_mem_bytes = block_size * np.dtype('float64').itemsize
+
+    # invoke the kernel
+    lbfgs_backward(
+        (grid_size,), (block_size,),
+        (old_stps_c, old_dirs_c, ro_c, q_c, al_c,
+         np.int32(m), np.int32(n)),
+        shared_mem=shared_mem_bytes
     )
 
-    # 3) Read back r (still zero-copy)
-    return cupy_to_torch(r_c)
+    # q_c and al_c reference the same memory as q and al,
+    # so they've been updated in-place.
+    return al
