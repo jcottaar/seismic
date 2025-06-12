@@ -3,6 +3,7 @@ import numpy as np
 from scipy.sparse.csgraph import connected_components
 from scipy.sparse import lil_matrix
 import copy
+import kaggle_support as kgs
 
 def unpad_edge_padded_gradient(v_adjoint: cp.ndarray, nbc: int) -> cp.ndarray:
     """
@@ -293,6 +294,7 @@ def _cubic_interpolate(x1, f1, g1, x2, f2, g2, bounds=None):
 
 
 @torch.no_grad()
+@kgs.profile_each_line
 def bfgs(cost_and_gradient_func, x0, max_iter, tolerance_grad):
 
     def _directional_evaluate(x, t, d):
@@ -323,6 +325,7 @@ def bfgs(cost_and_gradient_func, x0, max_iter, tolerance_grad):
     cur_index = 0
     ro = torch.zeros(max_iter+1, dtype = torch.float64, device='cuda')
     al = torch.zeros(max_iter+1, dtype = torch.float64, device='cuda')
+    be = torch.zeros(max_iter+1, dtype = torch.float64, device='cuda')
     old_dirs = torch.zeros(x.shape[0],max_iter+1, dtype =  torch.float64, device='cuda')
     old_stps = torch.zeros(x.shape[0],max_iter+1, dtype =  torch.float64, device='cuda')
     # optimize for a max of max_iter iterations
@@ -374,19 +377,30 @@ def bfgs(cost_and_gradient_func, x0, max_iter, tolerance_grad):
 
             # iteration in L-BFGS loop collapsed to use just one buffer
             q = flat_grad.neg()
+            #al[:num_old] = torch.mv(old_stps[:, :num_old].t(), q) * ro[:num_old]
+            #print(old_dirs.dtype, al.dtype, q.dtype)
             for i in range(num_old - 1, -1, -1):
                 al[i] = old_stps[:,i].dot(q) * ro[i]
                 q.add_(old_dirs[:,i], alpha=-al[i])
-            #al[:num_old] = torch.mv(old_stps[:, :num_old].t(), q) * ro[:num_old]
+            #
             #q -= torch.mv(old_dirs[:, :num_old], al[:num_old])
 
             # multiply by initial Hessian
             # r/d is the final direction
             d = r = torch.mul(q, H_diag)
-            for i in range(num_old):
-                be_i = old_dirs[:,i].dot(r) * ro[i]
-                r.add_(old_stps[:,i], alpha=al[i] - be_i)
             #be = torch.mv(old_dirs[:, :num_old].t(), r) * ro[:num_old]
+            for i in range(num_old):
+                be[i] = old_dirs[:,i].dot(r) * ro[i]
+                r.add_(old_stps[:,i], alpha=al[i] - be[i])
+            # r = fused_lbfgs_forward(
+            #     r,
+            #     old_dirs,   # torch.float64, shape [num_old,dim]
+            #     old_stps,   # torch.float64, shape [num_old,dim]
+            #     al,         # torch.float64, shape [num_old]
+            #     ro,         # torch.float64, shape [num_old]
+            #     num_old
+            # )
+            #
             #r += torch.mv(old_stps[:, :num_old], al[:num_old] - be)
 
         if prev_flat_grad is None:
@@ -437,3 +451,94 @@ def bfgs(cost_and_gradient_func, x0, max_iter, tolerance_grad):
             break
 
     return x
+
+import torch
+import cupy
+from cupy import RawModule
+
+# ── Helpers: convert back and forth using DLPack ─────────────────────────────
+
+def torch_to_cupy(x: torch.Tensor) -> cupy.ndarray:
+    """Move a CUDA torch.Tensor → CuPy without copy via DLPack."""
+    assert x.is_cuda, "Tensor must be on CUDA"
+    return cupy.fromDlpack(torch.utils.dlpack.to_dlpack(x))
+
+def cupy_to_torch(x: cupy.ndarray) -> torch.Tensor:
+    """Move a CuPy array → torch.Tensor without copy via DLPack."""
+    return torch.utils.dlpack.from_dlpack(x.toDlpack())
+
+# ── Define and compile the RawModule ────────────────────────────────────────
+
+_kernel = r'''
+extern "C" __global__
+void lbfgs_forward(
+    const double* old_dirs, // [num_old, dim]
+    const double* old_stps, // [num_old, dim]
+    const double* al,       // [num_old]
+    const double* ro,       // [num_old]
+    double*       r,        // [dim] (in-place)
+    int           num_old,
+    int           dim
+) {
+    // only thread 0 drives the sequential loop
+    if (threadIdx.x + blockIdx.x * blockDim.x != 0) return;
+
+    for (int i = 0; i < num_old; ++i) {
+        // compute beta = dot(old_dirs[i], r) * ro[i]
+        const double* d_i = old_dirs + size_t(i) * dim;
+        const double* s_i = old_stps + size_t(i) * dim;
+        double beta = 0.0;
+        for (int j = 0; j < dim; ++j) {
+            beta += d_i[j] * r[j];
+        }
+        beta *= ro[i];
+
+        // r = r + s_i * (al[i] - beta)
+        double coeff = al[i] - beta;
+        for (int j = 0; j < dim; ++j) {
+            r[j] += s_i[j] * coeff;
+        }
+    }
+}
+'''
+_module = RawModule(code=_kernel)
+_lbfgs_forward = _module.get_function('lbfgs_forward')
+
+# ── How to call it in your LBFGS step ──────────────────────────────────────
+
+def fused_lbfgs_forward(r_t: torch.Tensor,
+                        old_dirs_t: torch.Tensor,
+                        old_stps_t: torch.Tensor,
+                        al_t: torch.Tensor,
+                        ro_t: torch.Tensor,
+                        num_old: int):
+    """
+    Perform the forward L-BFGS recursion on r (torch.Tensor, double, 1D).
+    old_dirs_t / old_stps_t: (num_old, dim) torch.Tensor, dtype=torch.float64
+    al_t, ro_t: (num_old,) torch.Tensor, dtype=torch.float64
+    """
+
+    # 1) Move everything to CuPy (zero-copy via DLPack)
+    r_c    = torch_to_cupy(r_t)
+    dirs_c = torch_to_cupy(old_dirs_t)
+    stps_c = torch_to_cupy(old_stps_t)
+    al_c   = torch_to_cupy(al_t)
+    ro_c   = torch_to_cupy(ro_t)
+
+    # 2) Launch kernel with a single thread
+    dim = r_t.numel()
+    _lbfgs_forward(
+        (1,),    # grid
+        (1,),    # block
+        (  dirs_c.ravel(),    # const double*
+           stps_c.ravel(),    # const double*
+           al_c.ravel(),      # const double*
+           ro_c.ravel(),      # const double*
+           r_c.ravel(),       # double* (in-place)
+           num_old,       # int
+           dim            # int
+        )
+    )
+
+    # 3) Read back r (still zero-copy)
+    return cupy_to_torch(r_c)
