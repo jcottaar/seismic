@@ -303,6 +303,7 @@ def bfgs(cost_and_gradient_func, x0, max_iter, tolerance_grad):
         x+=t*d
 
     lr = 1
+    max_eval = max_iter * 5 // 4
 
     # evaluate initial f(x) and df/dx
     orig_loss, flat_grad = cost_and_gradient_func(x0)
@@ -319,6 +320,11 @@ def bfgs(cost_and_gradient_func, x0, max_iter, tolerance_grad):
     n_iter = 0
     al_made = False
     prev_flat_grad = None
+    cur_index = 0
+    ro = torch.zeros(max_iter+1, dtype = torch.float64, device='cuda')
+    al = torch.zeros(max_iter+1, dtype = torch.float64, device='cuda')
+    old_dirs = torch.zeros(x.shape[0],max_iter+1, dtype =  torch.float64, device='cuda')
+    old_stps = torch.zeros(x.shape[0],max_iter+1, dtype =  torch.float64, device='cuda')
     # optimize for a max of max_iter iterations
     while n_iter < max_iter:
         # keep track of nb of iterations
@@ -329,9 +335,9 @@ def bfgs(cost_and_gradient_func, x0, max_iter, tolerance_grad):
         ############################################################
         if n_iter == 1:
             d = flat_grad.neg()
-            old_dirs = []
-            old_stps = []
-            ro = []
+            #old_dirs = []
+            #old_stps = []
+            #ro = []
             H_diag = 1
         else:
             # do lbfgs update (update memory)
@@ -347,32 +353,41 @@ def bfgs(cost_and_gradient_func, x0, max_iter, tolerance_grad):
                 #     ro.pop(0)
 
                 # store new direction/step
-                old_dirs.append(y)
-                old_stps.append(s)
-                ro.append(1.0 / ys)
+                old_dirs[:,cur_index] = y
+                old_stps[:,cur_index] = s
+                ro[cur_index] = 1.0/ys;
+                cur_index+=1
+                #old_dirs.append(y)
+                #old_stps.append(s)
+                #ro.append(1.0 / ys)
 
                 # update scale of initial Hessian approximation
                 H_diag = ys / y.dot(y)  # (y*y)
 
             # compute the approximate (L-BFGS) inverse Hessian
             # multiplied by the gradient
-            num_old = len(old_dirs)
+            #num_old = len(old_dirs)
+            num_old = cur_index
 
-            if not al_made: 
-                al = [None] * (max_iter+1)
+            #if not al_made: 
+            #    al = [None] * (max_iter+1)
 
             # iteration in L-BFGS loop collapsed to use just one buffer
             q = flat_grad.neg()
             for i in range(num_old - 1, -1, -1):
-                al[i] = old_stps[i].dot(q) * ro[i]
-                q.add_(old_dirs[i], alpha=-al[i])
+                al[i] = old_stps[:,i].dot(q) * ro[i]
+                q.add_(old_dirs[:,i], alpha=-al[i])
+            #al[:num_old] = torch.mv(old_stps[:, :num_old].t(), q) * ro[:num_old]
+            #q -= torch.mv(old_dirs[:, :num_old], al[:num_old])
 
             # multiply by initial Hessian
             # r/d is the final direction
             d = r = torch.mul(q, H_diag)
             for i in range(num_old):
-                be_i = old_dirs[i].dot(r) * ro[i]
-                r.add_(old_stps[i], alpha=al[i] - be_i)
+                be_i = old_dirs[:,i].dot(r) * ro[i]
+                r.add_(old_stps[:,i], alpha=al[i] - be_i)
+            #be = torch.mv(old_dirs[:, :num_old].t(), r) * ro[:num_old]
+            #r += torch.mv(old_stps[:, :num_old], al[:num_old] - be)
 
         if prev_flat_grad is None:
             prev_flat_grad = flat_grad.clone(memory_format=torch.contiguous_format)
@@ -412,6 +427,9 @@ def bfgs(cost_and_gradient_func, x0, max_iter, tolerance_grad):
         # check conditions
         ############################################################
         if n_iter == max_iter:
+            break
+
+        if current_evals >= max_eval:
             break
 
         # optimal condition
