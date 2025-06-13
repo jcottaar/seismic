@@ -61,7 +61,7 @@ class InversionModel(kgs.Model):
     lambda_list: object = field(init=True, default_factory=list)
 
     show_convergence = False
-    use_new_bfgs = False
+    use_new_bfgs = True
 
     _start_time = 0
 
