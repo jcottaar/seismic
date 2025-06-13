@@ -43,7 +43,7 @@ def model_Style_A():
 
 def model_Style_B():
     model = seis_invert.InversionModel()
-    model.iter_list = [1000]
+    model.iter_list = [2000] if not test_mode else [50]
     
     model.prior = seis_prior.SquaredExponential()
     model.prior.length_scale = 1.96
@@ -52,6 +52,7 @@ def model_Style_B():
     model.prior.sigma_mean = 1239
     model.prior.sigma_slope = 92
     model.prior.transform = False
+    model.prior.λ = 10**-15
 
     model.cache_name = 'Style_B'
     model.write_cache = True
@@ -117,7 +118,7 @@ class ModelSplit(kgs.Model):
             elif kpi_style_B(vel_cp.data)<95:
                 if not data.family=='test':
                     assert data.family=='Style_B'   
-                data.do_not_cache=True
+                data = self.model_Style_B.infer([data])[0]   
                 StyleBseen+=1
             else:
                 if not data.family=='test':
