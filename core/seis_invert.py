@@ -10,6 +10,7 @@ import time
 from dataclasses import dataclass, field, fields
 import matplotlib.pyplot as plt
 import torch
+from torch.utils.dlpack import to_dlpack, from_dlpack
 
 profiling=False
 last_t=time.time()
@@ -191,19 +192,20 @@ class InversionModel(kgs.Model):
         x_guess = cp.asnumpy(cp.linalg.solve(cp.array(basis_functions.T@basis_functions), basis_functions.T@(velocity_guess.to_vector())))
         x_guess = x_guess.astype(dtype=kgs.base_type)
         target = seismogram.to_vector()
-         
+
+        
         def cost_and_gradient_func(x):
             global last_t            
             start_t=time.time()
-            xx = cp.array(x.cpu().numpy(),dtype=kgs.base_type_gpu)[:,None]
+            xx = cp.from_dlpack(to_dlpack(x))[:,None]
             cost,gradient,cost_prior, cost_residual = cost_and_gradient(xx, target, self.prior_in_use, basis_functions, compute_gradient=True)
-            if not true_vel is None:
-                #print(cost, kgs.rms(basis_functions@cp.array(x[:,None])-true_vel.to_vector()))
-                diagnostics['vel_error_per_fev'].append(cp.asnumpy(cp.mean(cp.abs(basis_functions@xx-true_vel.to_vector()))))
-            diagnostics['seis_error_per_fev'].append(cp.asnumpy(cost_residual))
-            diagnostics['total_cost_per_fev'].append(cp.asnumpy(cost))
-            diagnostics['time_per_fev'].append(time.time()-self._start_time)
             if self.show_convergence:
+                if not true_vel is None:
+                    #print(cost, kgs.rms(basis_functions@cp.array(x[:,None])-true_vel.to_vector()))
+                    diagnostics['vel_error_per_fev'].append(cp.asnumpy(cp.mean(cp.abs(basis_functions@xx-true_vel.to_vector()))))
+                diagnostics['seis_error_per_fev'].append(cp.asnumpy(cost_residual))
+                diagnostics['total_cost_per_fev'].append(cp.asnumpy(cost))
+                diagnostics['time_per_fev'].append(time.time()-self._start_time)            
                 diagnostics['x'].append(cp.asnumpy(basis_functions@xx))
             cost = cost*self.scaling
             gradient = gradient*self.scaling
@@ -212,7 +214,8 @@ class InversionModel(kgs.Model):
                 print(f'total iteration time: {1e3*(time.time()-last_t):.2f}')
                 print('')
             last_t = time.time()
-            return torch.tensor(cp.asnumpy(cost),device='cuda'), torch.tensor(cp.asnumpy(gradient[:,0]),device='cuda')
+            return from_dlpack(cost.toDlpack()), from_dlpack(gradient[:,0].toDlpack())
+            #torch.tensor(cp.asnumpy(cost),device='cuda'), torch.tensor(cp.asnumpy(gradient[:,0]),device='cuda')
 
         result = seis_numerics.bfgs(cost_and_gradient_func, torch.tensor(x_guess[:,0], device='cuda'), maxiter, self.lbfgs_tolerance_grad)
     

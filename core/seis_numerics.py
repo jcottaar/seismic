@@ -4,6 +4,7 @@ from scipy.sparse.csgraph import connected_components
 from scipy.sparse import lil_matrix
 import copy
 import kaggle_support as kgs
+from torch.utils.dlpack import to_dlpack, from_dlpack
 
 def unpad_edge_padded_gradient(v_adjoint: cp.ndarray, nbc: int) -> cp.ndarray:
     """
@@ -556,7 +557,7 @@ module = cp.RawModule(code=kernel_code,
                       name_expressions=('lbfgs_forward',))
 lbfgs_forward = module.get_function('lbfgs_forward')
 
-from torch.utils.dlpack import to_dlpack, from_dlpack
+
 def lbfgs_backward_torch(old_stps: torch.Tensor,
                          old_dirs: torch.Tensor,
                          ro: torch.Tensor,

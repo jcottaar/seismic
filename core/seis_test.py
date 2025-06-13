@@ -95,6 +95,8 @@ def test_to_reference(d, model, write_reference=False):
     result = model.infer([d])[0]
     if write_reference:
         assert kgs.env=='local'
+        ref = kgs.dill_load(kgs.code_dir + '/' + d.family + '_ref.pickle')
+        print('Difference to last: ', kgs.rms(result.velocity_guess.data - ref.velocity_guess.data))
         kgs.dill_save(kgs.code_dir + '/' + d.family + '_ref.pickle', result)
     ref = kgs.dill_load(kgs.code_dir + '/' + d.family + '_ref.pickle')
     print( kgs.rms(result.velocity_guess.data - ref.velocity_guess.data))
