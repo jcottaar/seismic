@@ -44,6 +44,8 @@ def model_Style_A():
 def model_Style_B():
     model = seis_invert.InversionModel()
     model.iter_list = [2000] if not test_mode else [50]
+    #model.iter_list = [3500] if not test_mode else [50];model.lbfgs_tolerance_grad = 10**3.5
+    
     
     model.prior = seis_prior.SquaredExponential()
     model.prior.length_scale = 1.96
