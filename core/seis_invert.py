@@ -220,7 +220,13 @@ class InversionModel(kgs.Model):
         result = seis_numerics.bfgs(cost_and_gradient_func, torch.tensor(x_guess[:,0], device='cuda'), maxiter, self.lbfgs_tolerance_grad)
     
         # Extract final result
-        final_result = result.detach().cpu().numpy()
+        result = copy.deepcopy(velocity_guess)
+        if np.any(np.isnan(final_result)):
+            # Rare failure - use initial guess   
+            print('Failure! Reusing initial guess.')
+            result.to_cupy();
+        else:                
+            result.from_vector( basis_functions@cp.array(final_result)[:,None] )
     
         result = copy.deepcopy(velocity_guess)
         result.from_vector( basis_functions@cp.array(final_result)[:,None] )

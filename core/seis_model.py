@@ -126,7 +126,7 @@ class ModelSplit(kgs.Model):
                 if not data.family=='test':
                     assert not 'FlatVel' in data.family and not 'Style' in data.family
                 if kpi_fault_A(data.velocity_guess.data)>4100:
-                    print('Skipped an easy TV2D')
+                    # print('Skipped an easy TV2D')
                     # probably FlatFault_A or CurveFault_A; these are really good already
                     data.do_not_cache=True
                 else:                
