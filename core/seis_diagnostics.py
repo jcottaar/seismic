@@ -16,7 +16,7 @@ import matplotlib
 matplotlib.rcParams['animation.embed_limit'] = 1000
 matplotlib.rcParams['animation.html'] = 'jshtml'
 
-def do_diagnostics_run(data, model, do_which_list, param_func, param_values, param_name, help_fac=0.0):
+def do_diagnostics_run(data, model, do_which_list, param_func, param_values, param_name, help_fac=0.0, start_model = seis_nn.default_pretrained):
     model.check_constraints()
     model.run_in_parallel = False
     model.train([],[])
@@ -38,14 +38,16 @@ def do_diagnostics_run(data, model, do_which_list, param_func, param_values, par
     plot_names = ['velocity MAE error', 'seismogram RMS error', 'total cost'] 
     plot_fields = ['vel_error_per_fev', 'seis_error_per_fev', 'total_cost_per_fev']
 
+    kgs.disable_caching = False
     # Prep data
     vel_true = data.velocity
     seis_given = data.seismogram
     seis_remodeled = copy.deepcopy(seis_given)
     seis_remodeled.from_vector(seis_forward2.vel_to_seis(vel_true.to_vector())[0])
-    vel_guess = seis_nn.default_pretrained.infer([data])[0].velocity_guess
+    vel_guess = start_model.infer([data])[0].velocity_guess
     vel_true_np = copy.deepcopy(vel_true)
     vel_true_np.data = cp.asnumpy(vel_true.data)
+    kgs.disable_caching = True
 
     plt.sca(ax[1])
     plt.imshow(vel_guess.data - cp.asnumpy(data.velocity.data))
@@ -59,8 +61,9 @@ def do_diagnostics_run(data, model, do_which_list, param_func, param_values, par
         #print(f"{param_name}={v}")
         plt.pause(0.001)
         this_model = param_func(copy.deepcopy(model), v)
-        kgs.disable_caching = True
+        
 
+        
         names = []
         for i_which in range(len(do_which_list)):            
             if not do_which_list[i_which]:
@@ -84,6 +87,7 @@ def do_diagnostics_run(data, model, do_which_list, param_func, param_values, par
             results[-1].append(copy.deepcopy(this_model.infer([data_in])[0]))
             names.append(names_which[i_which])
 
+        
         # Plot convergence behavior for this batch
         _,ax = plt.subplots(1,3,figsize=(15,4))
         for i_plot in range(3):

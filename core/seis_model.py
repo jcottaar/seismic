@@ -75,6 +75,18 @@ def model_TV2D():
     model.read_cache = True
     return model
 
+def model_TV2D_refine():
+    model = model_TV2D()
+    
+    #model.prior.λ = 10**-8
+    #model.lbfgs_tolerance_grad = 10**2.5
+    model.iter_list = [10000]
+
+    model.cache_name = 'model_TV2D_refine'
+    model.write_cache = True
+    model.read_cache = True
+    return model
+
 StyleAseen=0
 StyleBseen=0
 FlatVelseen= 0
@@ -84,8 +96,11 @@ class ModelSplit(kgs.Model):
     model_Style_A: kgs.Model = field(init=True, default_factory = model_Style_A)
     model_Style_B: kgs.Model = field(init=True, default_factory = model_Style_B)
     model_TV2D   : kgs.Model = field(init=True, default_factory = model_TV2D   )
+    model_TV2D_refine: kgs.Model = field(init=True, default_factory = model_TV2D_refine   )
 
     P_identify_style_A = 0
+
+    refine_threshold = np.inf
 
     def _train(self, train_data, validation_data):
         prior_style_A = copy.deepcopy(self.model_Style_A.prior)
@@ -98,6 +113,7 @@ class ModelSplit(kgs.Model):
         self.model_Style_A.train(train_data, validation_data)
         self.model_Style_B.train(train_data, validation_data)
         self.model_TV2D.train(train_data, validation_data)
+        self.model_TV2D_refine.train(train_data, validation_data)
         
 
     def _infer_single(self, data):
@@ -132,6 +148,30 @@ class ModelSplit(kgs.Model):
                     data.do_not_cache=True
                 else:                
                     data = self.model_TV2D.infer([data])[0]   
+                    
+                    vel = copy.deepcopy(data.velocity_guess)
+                    vel.to_cupy()
+                    vel.data = vel.data.astype(kgs.base_type_gpu)
+                    vel.min_vel = vel.min_vel.astype(kgs.base_type_gpu)
+                    seis = kgs.Seismogram()
+                    seis.from_vector(seis_forward2.vel_to_seis(vel.to_vector())[0])     
+                    data.seismogram.load_to_memory()
+                    seis_err_rms_before = kgs.rms(seis.to_vector() - data.seismogram.to_vector()).get()
+                    #print(seis_err_rms_before)
+                    if seis_err_rms_before>self.refine_threshold:
+                        data = self.model_TV2D_refine.infer([data])[0]   
+                        vel = copy.deepcopy(data.velocity_guess)
+                        vel.to_cupy()
+                        vel.data = vel.data.astype(kgs.base_type_gpu)
+                        vel.min_vel = vel.min_vel.astype(kgs.base_type_gpu)
+                        seis = kgs.Seismogram()
+                        seis.from_vector(seis_forward2.vel_to_seis(vel.to_vector())[0])                    
+                        data.seismogram.load_to_memory()
+                        seis_err_rms_after = kgs.rms(seis.to_vector() - data.seismogram.to_vector()).get()
+                        print(seis_err_rms_before, seis_err_rms_after)
+                        
+                                                
+
             pass
         return data
 
