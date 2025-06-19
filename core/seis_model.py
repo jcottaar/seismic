@@ -20,6 +20,7 @@ def model_FlatVel():
     model.lambda_list = [1e-8]
     model.prior.epsilon = 0.1
     model.iter_list = [10000] if not test_mode else [30]
+    model.use_new_bfgs = False
 
     model.cache_name = 'FlatVel'
     model.write_cache = True
