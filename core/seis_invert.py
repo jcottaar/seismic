@@ -97,13 +97,16 @@ class InversionModel(kgs.Model):
             J_list = []
             import cupyx.scipy.linalg
             P = cupyx.scipy.linalg.block_diag(self.prior_in_use.λ*self.prior_in_use.P, cp.zeros((1,1),dtype=kgs.base_type_gpu))           
-            J = np.zeros((target.shape[0],basis_functions.shape[1]), kgs.base_type)
+            J = cp.zeros((target.shape[0],basis_functions.shape[1]), kgs.base_type_gpu)
+            t=time.time()
             for i in range(basis_functions.shape[1]): 
                 #if i%100==0:
                 #    print(i)
                 _,diff,_ = seis_forward2.vel_to_seis(vec, vec_diff=basis_functions[:,i:i+1])
-                J[:,i] = cp.asnumpy(diff[:,0])
-            A = P+cp.array(J.T@J)/N
+                J[:,i] = (diff[:,0])
+            #print(time.time()-t)
+            A = P+(J.T@J)/N
+            #print(time.time()-t)
             del J
             res_inv = cp.linalg.solve(A,rhs)
             res_inv = res_inv[:,0]
@@ -122,7 +125,7 @@ class InversionModel(kgs.Model):
             res_inv=cupyx.scipy.sparse.linalg.gmres(AA,rhs,maxiter=maxiter,restart=maxiter)[0]
 
         callback(0*res_inv)
-        callback(res_inv)
+        
         res_inv = res_inv[:,None]        
         res2 = basis_functions@res_inv
         
@@ -161,6 +164,7 @@ class InversionModel(kgs.Model):
 
         optimal_scale = scales[np.argmin(vals1)]
 
+        callback(optimal_scale*res_inv)
         
         res = velocity_guess.to_vector() + optimal_scale*res2
         result = copy.deepcopy(velocity_guess)

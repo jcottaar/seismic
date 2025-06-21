@@ -49,6 +49,9 @@ def model_Style_A():
     model2.cache_name = 'Style_A_refine'
 
     model_full.models = [model,model2]
+
+    if test_mode:
+        model2.prior.svd_cutoff = 10000.
     
     return model_full
 
