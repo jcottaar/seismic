@@ -356,13 +356,13 @@ class Data(BaseClass):
 
     def load_to_memory(self):
         self.seismogram.load_to_memory()
-        if not self.velocity is None:
+        if self.is_train:
             self.velocity.load_to_memory()
         self.check_constraints()
 
     def unload(self):
         self.seismogram.unload()
-        if not self.velocity is None:
+        if self.is_train:
             self.velocity.unload()
         self.check_constraints()
 
@@ -474,6 +474,7 @@ class Model(BaseClass):
     write_cache: bool = field(init=True, default=False)
     read_cache: bool = field(init=True, default=False)
     only_use_cached: bool = field(init=True, default=False)
+    apply_offset: float = field(init=True, default=0.)
 
     def _check_constraints(self):
         assert(self.state>=0 and self.state<=1)
@@ -553,6 +554,10 @@ class Model(BaseClass):
             for d in test_data_inferred:
                 if not d.do_not_cache:
                     dill_save(this_cache_dir+d.cache_name(), (d.velocity_guess, git_commit_id))
+
+        for d in test_data:
+            d.velocity_guess.data += self.apply_offset
+            d.velocity_guess.min_vel += self.apply_offset
                 
         return test_data
 
@@ -645,7 +650,7 @@ def score_metric(data, show_diagnostics=True):
 #     print('xx')
 #     df.to_csv(output_file, index=False)
             
-def write_submission_file(data, output_file = output_dir+'submission.csv', obfuscate=0.):
+def write_submission_file(data, output_file = output_dir+'submission.csv', obfuscate=0., do_round = True, do_range = False):
     # precompute x‐positions and header
     x_vals = np.arange(1, 70, 2)
     x_names = [f"x_{x}" for x in x_vals]
@@ -665,7 +670,12 @@ def write_submission_file(data, output_file = output_dir+'submission.csv', obfus
 
             # grab and round your 70×70 numpy array
             arr = d.velocity_guess.data.astype(np.float32) + (r.uniform(size=d.velocity_guess.data.shape)>0.5)*obfuscate
-            arr = np.round(arr).astype(np.int32)
+            if do_round:
+                arr = np.round(arr).astype(np.int32)
+            else:
+                arr = arr.astype(np.float32)
+            if do_range:
+                arr = np.clip(arr,1500,4500)
 
             # slice out only the 35 columns you care about
             sub = arr[:, x_vals]  # shape = (70, 35)

@@ -22,6 +22,11 @@ def do_diagnostics_run(data, model, do_which_list, param_func, param_values, par
     model.train([],[])
     data.load_to_memory()
 
+    if not data.is_train:
+        data.velocity = kgs.Velocity()
+        data.velocity.data = 2000*cp.ones((70,70),dtype=kgs.base_type_gpu)
+        data.velocity.min_vel = 2000*cp.array(1., dtype=kgs.base_type_gpu)
+
     _,ax = plt.subplots(1,2,figsize=(10,4))
     plt.sca(ax[0])
     plt.imshow(cp.asnumpy(data.velocity.data))
@@ -39,8 +44,8 @@ def do_diagnostics_run(data, model, do_which_list, param_func, param_values, par
     plot_fields = ['vel_error_per_fev', 'seis_error_per_fev', 'total_cost_per_fev']
 
     kgs.disable_caching = False
-    # Prep data
-    vel_true = data.velocity
+    # Prep data    
+    vel_true = data.velocity    
     seis_given = data.seismogram
     seis_remodeled = copy.deepcopy(seis_given)
     seis_remodeled.from_vector(seis_forward2.vel_to_seis(vel_true.to_vector())[0])

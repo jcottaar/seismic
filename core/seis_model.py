@@ -27,7 +27,10 @@ def model_FlatVel():
     model.read_cache = True
     return model
 
-def model_Style_A():
+def model_Style_A():   
+
+    model_full = kgs.ChainedModel()
+    
     model = seis_invert.InversionModel()
     model.iter_list = [2500] if not test_mode else [50,-50]
     
@@ -40,7 +43,14 @@ def model_Style_A():
     model.cache_name = 'Style_A'
     model.write_cache = True
     model.read_cache = True
-    return model
+
+    model2 = copy.deepcopy(model)
+    model2.iter_list = [0]
+    model2.cache_name = 'Style_A_refine'
+
+    model_full.models = [model,model2]
+    
+    return model_full
 
 def model_Style_B():
     model = seis_invert.InversionModel()
@@ -85,6 +95,11 @@ def model_TV2D_refine():
     model.cache_name = 'model_TV2D_refine'
     model.write_cache = True
     model.read_cache = True
+
+    model = DummyModel()
+    model.cache_name = 'model_TV2D_refine'
+    model.write_cache = False
+    model.read_cache = True
     return model
 
 StyleAseen=0
@@ -100,10 +115,10 @@ class ModelSplit(kgs.Model):
 
     P_identify_style_A = 0
 
-    refine_threshold = np.inf
+    refine_threshold = 0. # but using dummy
 
     def _train(self, train_data, validation_data):
-        prior_style_A = copy.deepcopy(self.model_Style_A.prior)
+        prior_style_A = copy.deepcopy(self.model_Style_A.models[0].prior)
         prior_style_A.prepped = False
         prior_style_A.transform = False
         prior_style_A.prep()

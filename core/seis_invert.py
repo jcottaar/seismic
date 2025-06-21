@@ -76,35 +76,93 @@ class InversionModel(kgs.Model):
         N = len(target)
         rhs = -basis_functions.T@seis_forward2.vel_to_seis(basis_functions@x_guess, vec_adjoint=target, adjoint_on_residual=True)[2]/N # basis_functions.T@J.T@(target-vel_guess)
         rhs = rhs - np.concatenate( (self.prior_in_use.λ*self.prior_in_use.P@x_guess[:-1,:],cp.zeros((1,1),dtype=kgs.base_type_gpu)),axis=0)
-               
-        def A(x):
-            x = x[:,None]
-            v1 = seis_forward2.vel_to_seis(vec, vec_diff=basis_functions@x, vec_adjoint = target, adjoint_on_diff=True)[2]
-            res = np.concatenate( (self.prior_in_use.λ*self.prior_in_use.P@x[:-1,:],cp.zeros((1,1),dtype=kgs.base_type_gpu)),axis=0)+ basis_functions.T@v1/N
-            res = res[:,0]
-            return res
 
         def callback(x):            
             if self.show_convergence:
                 xx = x[:,None]+x_guess
                 cost,cost_prior, cost_residual = cost_and_gradient(xx, target, self.prior, basis_functions, compute_gradient=False)
-                for ii in range(maxiter):
+                if maxiter==0:
+                    mm = 4901//2
+                else:
+                    mm = maxiter
+                for ii in range(mm):
                     if not true_vel is None:
                         diagnostics['vel_error_per_fev'].append(cp.asnumpy(cp.mean(cp.abs((basis_functions@xx-true_vel.to_vector())))))
                     diagnostics['seis_error_per_fev'].append(cp.asnumpy(cost_residual))
                     diagnostics['total_cost_per_fev'].append(cp.asnumpy(cost))       
                     diagnostics['time_per_fev'].append(time.time()-self._start_time)
                     diagnostics['x'].append(cp.asnumpy(basis_functions@xx))
+
+        if maxiter==0: # exact solve
+            J_list = []
+            import cupyx.scipy.linalg
+            P = cupyx.scipy.linalg.block_diag(self.prior_in_use.λ*self.prior_in_use.P, cp.zeros((1,1),dtype=kgs.base_type_gpu))           
+            J = np.zeros((target.shape[0],basis_functions.shape[1]), kgs.base_type)
+            for i in range(basis_functions.shape[1]): 
+                #if i%100==0:
+                #    print(i)
+                _,diff,_ = seis_forward2.vel_to_seis(vec, vec_diff=basis_functions[:,i:i+1])
+                J[:,i] = cp.asnumpy(diff[:,0])
+            A = P+cp.array(J.T@J)/N
+            del J
+            res_inv = cp.linalg.solve(A,rhs)
+            res_inv = res_inv[:,0]
+        else: #GMRES
+               
+            def A(x):
+                x = x[:,None]
+                v1 = seis_forward2.vel_to_seis(vec, vec_diff=basis_functions@x, vec_adjoint = target, adjoint_on_diff=True)[2]
+                res = np.concatenate( (self.prior_in_use.λ*self.prior_in_use.P@x[:-1,:],cp.zeros((1,1),dtype=kgs.base_type_gpu)),axis=0)+ basis_functions.T@v1/N
+                res = res[:,0]
+                return res
+                
             
-        
-        import cupyx.scipy.sparse.linalg
-        AA=cupyx.scipy.sparse.linalg.LinearOperator( (self.prior_in_use.N,self.prior_in_use.N), A)        
-        res_inv=cupyx.scipy.sparse.linalg.gmres(AA,rhs,maxiter=maxiter,restart=maxiter)[0]
+            import cupyx.scipy.sparse.linalg
+            AA=cupyx.scipy.sparse.linalg.LinearOperator( (self.prior_in_use.N,self.prior_in_use.N), A)        
+            res_inv=cupyx.scipy.sparse.linalg.gmres(AA,rhs,maxiter=maxiter,restart=maxiter)[0]
+
         callback(0*res_inv)
         callback(res_inv)
         res_inv = res_inv[:,None]        
         res2 = basis_functions@res_inv
-        res = velocity_guess.to_vector() + res2
+        
+        scales = np.linspace(-0.1,1.1,50)
+
+        if not true_vel is None and self.show_convergence:
+            vals = [];        
+            for scale in scales:
+                res_here = velocity_guess.to_vector() + scale*res2
+                vals.append(cp.asnumpy(kgs.rms(res_here-true_vel.to_vector())))            
+            plt.figure()
+            plt.semilogy(scales,vals)
+            plt.legend(('Vel error'))
+            plt.grid(True)
+            plt.pause(0.001)
+
+        
+        vals1 = [];        
+        vals2 = [];
+        vals3 = [];
+        for scale in scales:
+            #print(x_guess+scale*res_inv)
+            cost_total, cost_prior, cost_residual = cost_and_gradient(x_guess+scale*res_inv, target, self.prior, basis_functions, compute_gradient=False)
+            
+            vals1.append(cp.asnumpy(cost_total))
+            vals2.append(cp.asnumpy(cost_prior))
+            vals3.append(cp.asnumpy(cost_residual))
+        if self.show_convergence:
+            plt.figure()
+            plt.semilogy(scales,vals1)
+            plt.semilogy(scales,vals2)
+            plt.semilogy(scales,vals3)        
+            plt.legend(('Cost total', 'Prior', 'Residual'))
+            plt.grid(True)
+            plt.pause(0.001)
+
+        optimal_scale = scales[np.argmin(vals1)]
+
+        
+        res = velocity_guess.to_vector() + optimal_scale*res2
         result = copy.deepcopy(velocity_guess)
         result.from_vector( res )
 
@@ -230,9 +288,6 @@ class InversionModel(kgs.Model):
         else:                
             result.from_vector( basis_functions@cp.array(final_result)[:,None] )
     
-        result = copy.deepcopy(velocity_guess)
-        result.from_vector( basis_functions@cp.array(final_result)[:,None] )
-    
         return result, diagnostics
 
 
@@ -245,7 +300,7 @@ class InversionModel(kgs.Model):
             data.velocity.load_to_memory()
             true_vel = data.velocity
         else:
-            true_vel = None
+            true_vel = data.velocity_guess
         diagnostics = dict()
         diagnostics['time_per_fev'] = []
         diagnostics['vel_error_per_fev'] = []
@@ -257,7 +312,7 @@ class InversionModel(kgs.Model):
         for imi, maxiter in enumerate(self.iter_list):
             if len(self.lambda_list)>imi:
                 self.prior_in_use.λ = self.lambda_list[imi]
-            if maxiter<0:
+            if maxiter<=0:
                 data.velocity_guess, diagnostics = self.seis_to_vel_gn(data.seismogram, data.velocity_guess, diagnostics, maxiter=-maxiter)
             else:
                 if self.use_new_bfgs:
