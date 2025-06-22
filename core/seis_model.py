@@ -79,7 +79,7 @@ def model_Style_B():
 
     model2 = copy.deepcopy(model)
     model2.iter_list = [7500] if not test_mode else [10]
-    model2.seis_error_tolerance = 5e-9
+    model2.seis_error_tolerance = 2.5e-9
     model2.cache_name = 'Style_B_refine'
     
     model_full.models = [model,model2]
