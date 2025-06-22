@@ -145,23 +145,27 @@ def do_diagnostics_run(data, model, do_which_list, param_func, param_values, par
 
     
 
-def animate_3d_matrix(animation_arr, fps=20, figsize=(6,6), axis_off=False):
+def animate_3d_matrix(animation_arr, fps=20, figsize=(6,6), axis_off=False, title='', cmap='viridis'):
 
     animation_arr= copy.deepcopy(animation_arr[...])
     
     # Initialise plot
     fig = plt.figure(figsize=figsize)  # if size is too big then gif gets truncated
 
-    im = plt.imshow(animation_arr[0])
-    plt.clim([0, 1])
+    min_val = np.percentile(animation_arr, 0)
+    max_val = np.percentile(animation_arr,100)
+    
+    im = plt.imshow(animation_arr[0], cmap=cmap, aspect='auto')
+    plt.clim([min_val,max_val])
+    plt.colorbar()
+    plt.title(title)
     if axis_off:
         plt.axis('off')
     #plt.title(f"{tomo_id}", fontweight="bold")
 
-    min_val = np.percentile(animation_arr, 2)
-    max_val = np.percentile(animation_arr,98)
-    print('range: ', min_val,max_val)
-    animation_arr = (animation_arr-min_val)/(max_val-min_val)
+    
+    #print('range: ', min_val,max_val)
+    #animation_arr = (animation_arr-min_val)/(max_val-min_val)
     # Load next frame
     def animate_func(i):
         im.set_data(animation_arr[i])

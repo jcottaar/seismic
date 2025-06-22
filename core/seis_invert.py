@@ -52,6 +52,7 @@ class InversionModel(kgs.Model):
     history_size = 10000
     scaling = 1e15
     lbfgs_tolerance_grad = 1e-7
+    seis_error_tolerance = 0.0 # MSE, only for BFGS2
     maxiter= 2000    
     prec_matrix: object = field(init=True, default_factory = lambda:cp.eye(4901))
 
@@ -260,7 +261,7 @@ class InversionModel(kgs.Model):
             global last_t            
             start_t=time.time()
             xx = cp.from_dlpack(to_dlpack(x))[:,None]
-            cost,gradient,cost_prior, cost_residual = cost_and_gradient(xx, target, self.prior_in_use, basis_functions, compute_gradient=True)
+            cost,gradient,cost_prior, cost_residual = cost_and_gradient(xx, target, self.prior_in_use, basis_functions, compute_gradient=True)           
             if self.show_convergence:
                 if not true_vel is None:
                     #print(cost, kgs.rms(basis_functions@cp.array(x[:,None])-true_vel.to_vector()))
@@ -269,6 +270,9 @@ class InversionModel(kgs.Model):
                 diagnostics['total_cost_per_fev'].append(cp.asnumpy(cost))
                 diagnostics['time_per_fev'].append(time.time()-self._start_time)            
                 diagnostics['x'].append(cp.asnumpy(basis_functions@xx))
+            if cost_residual<self.seis_error_tolerance:
+                cost = 0*cost
+                gradient = 0*gradient
             cost = cost*self.scaling
             gradient = gradient*self.scaling
             if profiling:               
@@ -323,6 +327,13 @@ class InversionModel(kgs.Model):
                     data.velocity_guess, diagnostics = self.seis_to_vel_lbfgs2(data.seismogram, data.velocity_guess, diagnostics, maxiter=maxiter)
                 else:
                     data.velocity_guess, diagnostics = self.seis_to_vel_lbfgs(data.seismogram, data.velocity_guess, diagnostics, maxiter=maxiter)
+
+        if self.show_convergence:
+           # x_by_it = []
+           # for x_interm in diagnostics['x'][::np.ceil(len(diagnostics['x'])/100).astype(int)]:
+           #     x_by_it.append(np.reshape(x_interm[:-1,:],(70,70)) - cp.asnumpy(true_vel.data))
+           # x_by_it = np.stack(x_by_it)
+            print('MAE update: ', np.mean(np.abs(diagnostics['x'][0]-diagnostics['x'][-1])))
         # if self.show_convergence:
         #     x_by_it = []
         #     for x_interm in diagnostics['x'][::np.ceil(len(diagnostics['x'])/100).astype(int)]:

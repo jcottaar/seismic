@@ -56,6 +56,9 @@ def model_Style_A():
     return model_full
 
 def model_Style_B():
+
+    model_full = kgs.ChainedModel()
+    
     model = seis_invert.InversionModel()
     model.iter_list = [1500] if not test_mode else [50]
     #model.iter_list = [3500] if not test_mode else [50];model.lbfgs_tolerance_grad = 10**3.5
@@ -73,7 +76,15 @@ def model_Style_B():
     model.cache_name = 'Style_B'
     model.write_cache = True
     model.read_cache = True
-    return model
+
+    model2 = copy.deepcopy(model)
+    model2.iter_list = [7500] if not test_mode else [10]
+    model2.seis_error_tolerance = 5e-9
+    model2.cache_name = 'Style_B_refine'
+    
+    model_full.models = [model,model2]
+
+    return model_full
 
 def model_TV2D():
     model = seis_invert.InversionModel()
