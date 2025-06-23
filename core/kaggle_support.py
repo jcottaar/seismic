@@ -50,6 +50,7 @@ debugging_mode = 2
 verbosity = 1
 disable_caching = False
 preallocate_matrices = True
+cache_only_mode = False
 
 match env:
     case 'local':
@@ -481,6 +482,9 @@ class Model(BaseClass):
 
     def train(self, train_data, validation_data):
         if self.state>=1:
+            return
+        if cache_only_mode:
+            self.state=1
             return
         if self.seed is None:
             self.seed = np.random.default_rng(seed=None).integers(0,1e6).item()

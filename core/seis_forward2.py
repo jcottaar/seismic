@@ -797,44 +797,45 @@ def adjust_sr(coord, dx, nbc):
     igz = igz + (np.abs(np.array(coord['gz'])) < 0.5).astype(int)
     return isx, isz, igx, igz
 
-nz = 70
-nx = 70
-dx = 10
-nbc = 120
-nt = 999
-dt = (1e-3)
-freq = 15
-s, _ = (ricker(freq, dt))
-s = expand_source(s, nt)
-s = cp.array(s, dtype=kgs.base_type_gpu)
-c1 = (-2.5)
-c2 = (4.0 / 3.0)
-c3 = (-1.0 / 12.0)
-c2,c3 = np.array(c2,dtype=kgs.base_type), np.array(c3,dtype=kgs.base_type)
-
-src_idx_list = []
-isx_list = []
-isz_list = []
-for i_source in range(5):
-    coord = {}
-    source_x = [0, 17, 34, 52, 69][i_source]
-    coord['sx'] = source_x * dx        
-    coord['sz'] = 1 * dx
-    coord['gx'] = np.arange(0, nx) * dx
-    coord['gz'] = np.ones_like(coord['gx']) * dx
-    isx, isz, igx, igz = adjust_sr(coord, dx, nbc)
-    src_idx = np.int32(isz*310 + isx)
-    src_idx_list.append(src_idx)
-    isx_list.append(isx)
-    isz_list.append(isz)
-
-ng = len(coord['gx'])
-
-damp = AbcCoef2D(310,310, nbc, dx)
-nx,nz = 310,310
-rcv_idx = nx*igz+igx
-
 if kgs.preallocate_matrices:
+
+    nz = 70
+    nx = 70
+    dx = 10
+    nbc = 120
+    nt = 999
+    dt = (1e-3)
+    freq = 15
+    s, _ = (ricker(freq, dt))
+    s = expand_source(s, nt)
+    s = cp.array(s, dtype=kgs.base_type_gpu)
+    c1 = (-2.5)
+    c2 = (4.0 / 3.0)
+    c3 = (-1.0 / 12.0)
+    c2,c3 = np.array(c2,dtype=kgs.base_type), np.array(c3,dtype=kgs.base_type)
+    
+    src_idx_list = []
+    isx_list = []
+    isz_list = []
+    for i_source in range(5):
+        coord = {}
+        source_x = [0, 17, 34, 52, 69][i_source]
+        coord['sx'] = source_x * dx        
+        coord['sz'] = 1 * dx
+        coord['gx'] = np.arange(0, nx) * dx
+        coord['gz'] = np.ones_like(coord['gx']) * dx
+        isx, isz, igx, igz = adjust_sr(coord, dx, nbc)
+        src_idx = np.int32(isz*310 + isx)
+        src_idx_list.append(src_idx)
+        isx_list.append(isx)
+        isz_list.append(isz)
+    
+    ng = len(coord['gx'])
+    
+    damp = AbcCoef2D(310,310, nbc, dx)
+    nx,nz = 310,310
+    rcv_idx = nx*igz+igx
+
     seis_combined = cp.zeros((5,999,70),dtype=kgs.base_type_gpu)
     p_complete = cp.zeros((nt+2,nx,nz), dtype=kgs.base_type_gpu)
     lapg_store = cp.zeros((nt,nx,nz), dtype=kgs.base_type_gpu)

@@ -117,6 +117,11 @@ def model_TV2D_refine():
     model.do_not_cache_mode = False
     return model
 
+def model_TV2Deasy():
+    model = DummyModel()
+    model.do_not_cache_mode = False
+    return model
+
 StyleAseen=0
 StyleBseen=0
 FlatVelseen= 0
@@ -127,6 +132,7 @@ class ModelSplit(kgs.Model):
     model_Style_B: kgs.Model = field(init=True, default_factory = model_Style_B)
     model_TV2D   : kgs.Model = field(init=True, default_factory = model_TV2D   )
     model_TV2D_refine: kgs.Model = field(init=True, default_factory = model_TV2D_refine   )
+    model_TV2Deasy: kgs.Model = field(init=True, default_factory = model_TV2Deasy   )
 
     P_identify_style_A = 0
 
@@ -175,7 +181,7 @@ class ModelSplit(kgs.Model):
                 if kpi_fault_A(data.velocity_guess.data)>4100:
                     # print('Skipped an easy TV2D')
                     # probably FlatFault_A or CurveFault_A; these are really good already
-                    data.do_not_cache=True
+                    data = self.model_TV2Deasy.infer([data])[0]   
                 else:                
                     data = self.model_TV2D.infer([data])[0]   
                     
