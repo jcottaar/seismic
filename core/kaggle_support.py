@@ -476,6 +476,7 @@ class Model(BaseClass):
     read_cache: bool = field(init=True, default=False)
     only_use_cached: bool = field(init=True, default=False)
     apply_offset: float = field(init=True, default=0.)
+    round_results: bool = field(init=True, default=False)
 
     def _check_constraints(self):
         assert(self.state>=0 and self.state<=1)
@@ -562,6 +563,9 @@ class Model(BaseClass):
         for d in test_data:
             d.velocity_guess.data += self.apply_offset
             d.velocity_guess.min_vel += self.apply_offset
+            if self.round_results:
+                d.velocity_guess.data = np.round(d.velocity_guess.data)
+                d.velocity_guess.min_vel = np.round(d.velocity_guess.min_vel)
                 
         return test_data
 
@@ -654,7 +658,7 @@ def score_metric(data, show_diagnostics=True):
 #     print('xx')
 #     df.to_csv(output_file, index=False)
             
-def write_submission_file(data, output_file = output_dir+'submission.csv', obfuscate=0., do_round = True, do_range = False):
+def write_submission_file(data, output_file = output_dir+'submission.csv', obfuscate=0., do_round = False, do_range = True):
     # precompute x‐positions and header
     x_vals = np.arange(1, 70, 2)
     x_names = [f"x_{x}" for x in x_vals]

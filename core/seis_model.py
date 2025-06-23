@@ -21,6 +21,7 @@ def model_FlatVel():
     model.prior.epsilon = 0.1
     model.iter_list = [10000] if not test_mode else [30]
     model.use_new_bfgs = False
+    model.round_results = True
 
     model.cache_name = 'FlatVel'
     model.write_cache = True
@@ -150,6 +151,7 @@ class ModelSplit(kgs.Model):
         self.model_Style_B.train(train_data, validation_data)
         self.model_TV2D.train(train_data, validation_data)
         self.model_TV2D_refine.train(train_data, validation_data)
+        self.model_TV2Deasy.train(train_data, validation_data)
         
 
     def _infer_single(self, data):
@@ -181,7 +183,7 @@ class ModelSplit(kgs.Model):
                 if kpi_fault_A(data.velocity_guess.data)>4100:
                     # print('Skipped an easy TV2D')
                     # probably FlatFault_A or CurveFault_A; these are really good already
-                    data = self.model_TV2Deasy.infer([data])[0]   
+                    data = self.model_TV2Deasy.infer([data])[0]                       
                 else:                
                     data = self.model_TV2D.infer([data])[0]   
                     
@@ -205,10 +207,9 @@ class ModelSplit(kgs.Model):
                         # data.seismogram.load_to_memory()
                         # seis_err_rms_after = kgs.rms(seis.to_vector() - data.seismogram.to_vector()).get()
                         # print(seis_err_rms_before, seis_err_rms_after)
-                        
-                                                
-
-            pass
+                # round
+                data.velocity_guess.data = np.round(data.velocity_guess.data)
+                data.velocity_guess.min_vel = np.round(data.velocity_guess.min_vel)
         return data
 
 @dataclass
