@@ -6,6 +6,36 @@ import copy
 import kaggle_support as kgs
 from torch.utils.dlpack import to_dlpack, from_dlpack
 
+def closest_neighbor_values(A):
+    """
+    For each element in A, find among its up/down/left/right neighbors
+    the one whose value is closest to A[i,j], and store that neighbor's
+    value in the output array B.
+    """
+    m, n = A.shape
+    
+    # Prepare shifted versions of A; out-of-bounds positions get a large dummy difference
+    # so they will never be chosen.
+    # shift up
+    A_up = cp.empty_like(A);   A_up[1:,:] = A[:-1,:];   A_up[0,:] = cp.inf
+    # shift down
+    A_dn = cp.empty_like(A);   A_dn[:-1,:] = A[1:,:];    A_dn[-1,:] = cp.inf
+    # shift left
+    A_lf = cp.empty_like(A);   A_lf[:,1:] = A[:,:-1];   A_lf[:,0] = cp.inf
+    # shift right
+    A_rt = cp.empty_like(A);   A_rt[:,:-1] = A[:,1:];    A_rt[:,-1] = cp.inf
+
+    # Stack all neighbor values and compute absolute differences:
+    # shape (m, n, 4)
+    neigh_vals = cp.stack([A_up, A_dn, A_lf, A_rt], axis=-1)
+    diffs      = cp.abs(neigh_vals - A[..., cp.newaxis])
+
+    # Find index of the closest neighbor along the last axis, then pick its value
+    idx_closest = cp.argmin(diffs, axis=-1)
+    B = cp.take_along_axis(neigh_vals, idx_closest[..., cp.newaxis], axis=-1)[..., 0]
+
+    return B
+    
 def unpad_edge_padded_gradient(v_adjoint: cp.ndarray, nbc: int) -> cp.ndarray:
     """
     Given a gradient array `v_adjoint` that was computed on an edge-padded field (mode='edge'),

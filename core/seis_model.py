@@ -144,7 +144,7 @@ class ModelSplit(kgs.Model):
 
     P_identify_style_A = 0
 
-    refine_threshold = 0. # but using dummy
+    refine_threshold = np.inf #0. # but using dummy
 
     def _train(self, train_data, validation_data):
         prior_style_A = copy.deepcopy(self.model_Style_A.models[0].prior)
@@ -194,17 +194,17 @@ class ModelSplit(kgs.Model):
                 else:                
                     data = self.model_TV2D.infer([data])[0]   
                     
-                    # vel = copy.deepcopy(data.velocity_guess)
-                    # vel.to_cupy()
-                    # vel.data = vel.data.astype(kgs.base_type_gpu)
-                    # vel.min_vel = vel.min_vel.astype(kgs.base_type_gpu)
-                    # seis = kgs.Seismogram()
-                    # seis.from_vector(seis_forward2.vel_to_seis(vel.to_vector())[0])     
-                    # data.seismogram.load_to_memory()
-                    # seis_err_rms_before = kgs.rms(seis.to_vector() - data.seismogram.to_vector()).get()
-                    # #print(seis_err_rms_before)
-                    # if seis_err_rms_before>self.refine_threshold:
-                    data = self.model_TV2D_refine.infer([data])[0]   
+                    vel = copy.deepcopy(data.velocity_guess)
+                    vel.to_cupy()
+                    vel.data = vel.data.astype(kgs.base_type_gpu)
+                    vel.min_vel = vel.min_vel.astype(kgs.base_type_gpu)
+                    seis = kgs.Seismogram()
+                    seis.from_vector(seis_forward2.vel_to_seis(vel.to_vector())[0])     
+                    data.seismogram.load_to_memory()
+                    seis_err_rms_before = kgs.rms(seis.to_vector() - data.seismogram.to_vector()).get()
+                    #print(seis_err_rms_before)
+                    if seis_err_rms_before>self.refine_threshold:
+                        data = self.model_TV2D_refine.infer([data])[0]   
                         # vel = copy.deepcopy(data.velocity_guess)
                         # vel.to_cupy()
                         # vel.data = vel.data.astype(kgs.base_type_gpu)
@@ -287,4 +287,3 @@ def check_model_accuracy(model, subsample):
             plt.colorbar()
             plt.suptitle(d.cache_name())
             d.unload()
-

@@ -354,3 +354,42 @@ class InversionModel(kgs.Model):
 
     def _train(self, train_data, validation_data):
         self.prior.prep()
+
+class Snap(kgs.Model):
+    step_size = 5.
+    steps = 300
+    show_convergence = False
+
+    def _infer_single(self,data):
+        global true_vel       
+        if data.is_train:
+            data.velocity.load_to_memory()
+            true_vel = data.velocity
+        else:
+            true_vel = data.velocity_guess
+        vel = cp.array(data.velocity_guess.data, dtype=kgs.base_type_gpu)
+        cur_step_size = self.step_size
+        diagnostics = dict()
+        diagnostics['time_per_fev'] = []
+        diagnostics['vel_error_per_fev'] = []
+        diagnostics['seis_error_per_fev'] = []
+        diagnostics['total_cost_per_fev'] = []
+        seis_target = data.seismogram.to_vector()
+        for i_step in range(self.steps):         
+            proposed_vals = seis_numerics.closest_neighbor_values(vel)
+            to_update = cp.abs(proposed_vals-vel)<cur_step_size
+            vel[to_update] = proposed_vals[to_update]
+
+            seis = seis_forward2.vel_to_seis(cp.concatenate((vel.flatten(), cp.reshape(cp.array(cp.min(vel)),(1,))))[:,None])[0]
+            
+            diagnostics['time_per_fev'].append(i_step)
+            if not true_vel is None:
+                diagnostics['vel_error_per_fev'].append(kgs.rms(vel-true_vel.data).get())
+            diagnostics['seis_error_per_fev'].append(kgs.rms(seis-seis_target).get())
+            diagnostics['total_cost_per_fev'].append(0)
+            cur_step_size+=self.step_size
+
+        data.velocity_guess.data = vel.get()
+        data.velocity_guess.min_vel = np.min(data.velocity_guess.data)
+        data.diagnostics['seis_to_vel'] = diagnostics
+        return data
