@@ -116,7 +116,7 @@ def run_all_tests(test_reference_mode = False, write_reference=False):
 
     seis_model.test_mode = True    
     model = seis_model.default_model()
-    for d in data[::-1000][::-1]:
+    for d in data[::1000]:
         test_to_reference(d,model,write_reference=write_reference)
     seis_model.test_mode = False
 

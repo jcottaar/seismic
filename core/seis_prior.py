@@ -7,6 +7,7 @@ import seis_numerics
 import scipy.linalg
 import cupyx.scipy.ndimage
 import cupyx.scipy.linalg
+import copy
 
 @dataclass
 class Prior(kgs.BaseClass):
@@ -267,16 +268,22 @@ class RestrictFlatAreas(Prior):
         labels = labels.ravel()
         for i_ind,ind in enumerate(diff_inds):
             labels[ind] = i_ind+count+1
-    
+
+        plot_list=np.zeros(4900)
+        #labels_mixed = copy.deepcopy(labels)
+        #np.random.default_rng(seed=0).shuffle(labels_mixed)
         basis_functions = np.zeros((4900,count+len(diff_inds)+1), dtype=kgs.base_type)    
         for ind in range(4900):
             basis_functions[ind,labels[ind]]=1.
+            plot_list[ind] = labels[ind]
         basis_functions = cp.array(basis_functions)
         basis_functions = basis_functions[:,cp.sum(basis_functions,axis=0)>0]
 
         self.basis_vectors = cupyx.scipy.linalg.block_diag(basis_functions, cp.array([[1]], dtype=kgs.base_type_gpu))
         self.basis_vectors = self.basis_vectors/cp.sum(self.basis_vectors,axis=0)
         self.N = self.basis_vectors.shape[1]
+        print(self.N)
+        plt.figure();plt.imshow(np.reshape(plot_list,(70,70)));plt.pause(0.001)
 
     def _compute_cost_and_gradient(self, x, compute_gradient):
         underlying_x = self.basis_vectors@x        

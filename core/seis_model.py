@@ -119,8 +119,15 @@ def model_TV2D_refine():
     return model
 
 def model_TV2Deasy():
-    model = DummyModel()
-    model.do_not_cache_mode = False
+    model = model_TV2D()
+    model.prior.λ = 10**-7
+    #model.models[1].model_TV2Deasy.lbfgs_tolerance_grad = 0.
+    model.lbfgs_tolerance_grad *= 10**1
+    #model.lbfgs_tolerance_grad = 'check'
+    model.iter_list = [600]
+    model.cache_name = 'TV2Deasy'
+    model.write_cache = True
+    model.read_cache = True
     return model
 
 StyleAseen=0
