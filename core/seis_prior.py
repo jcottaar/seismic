@@ -98,12 +98,18 @@ class RowTotalVariation(Prior):
 @dataclass
 class TotalVariation(Prior):
     epsilon: float = field(init=True, default=0.1)
+    cost_func = 0
+    grad_cost_func = 0
+    
 
     def __post_init__(self):
         # Mark the object as frozen after initialization        
         super().__post_init__()
         self.N = 4901
         self.λ = 1e-8
+
+        self.cost_func = lambda x:cp.sqrt(x**2 + self.epsilon**2)
+        self.grad_cost_func = lambda x:x/cp.sqrt(x**2 + self.epsilon**2)
     
     def _prep(self):
         basis_vectors=cp.eye(4901, dtype=kgs.base_type_gpu)
@@ -122,18 +128,21 @@ class TotalVariation(Prior):
         diff = cp.concatenate((d1_flat, d2_flat))  # shape (N_diff,)
     
         # cost per element and total cost
-        cost_per_item = cp.sqrt(diff**2 + self.epsilon**2)
+        #cost_per_item = cp.sqrt(diff**2 + self.epsilon**2)
+        cost_per_item = self.cost_func(diff)
         cost = cp.mean(cost_per_item)
     
         if compute_gradient:
             # number of diff elements
             N = diff.size
             # split cost_per_item back to match diff1 and diff2
-            c1 = cost_per_item[:d1_flat.size]
-            c2 = cost_per_item[d1_flat.size:]
+            #c1 = cost_per_item[:d1_flat.size]
+            #c2 = cost_per_item[d1_flat.size:]
             # gradient w.r.t. diff elements (chain through sqrt and mean)
-            g1 = (d1_flat / c1) / N
-            g2 = (d2_flat / c2) / N
+            #g1 = (d1_flat / c1) / N
+            #g2 = (d2_flat / c2) / N
+            g1 = self.grad_cost_func(d1_flat)/N
+            g2 = self.grad_cost_func(d2_flat)/N
             # reshape
             g1_mat = g1.reshape(diff1.shape)
             g2_mat = g2.reshape(diff2.shape)
@@ -244,6 +253,7 @@ class RestrictFlatAreas(Prior):
     underlying_prior = 0
     diff_threshold1 = 1.
     diff_threshold2 = 30.
+    rrange = 3
 
     def _prep(self):
 
@@ -258,8 +268,8 @@ class RestrictFlatAreas(Prior):
         labels,count = seis_numerics.label_thresholded_components(mat, self.diff_threshold1, connectivity=4)
 
         mat = cp.array(mat)
-        maxx = cupyx.scipy.ndimage.maximum_filter(mat,3)
-        minn = -cupyx.scipy.ndimage.maximum_filter(-mat,3)
+        maxx = cupyx.scipy.ndimage.maximum_filter(mat,self.rrange)
+        minn = -cupyx.scipy.ndimage.maximum_filter(-mat,self.rrange)
         diff = cp.maximum(cp.abs(mat-maxx), cp.abs(mat-minn))
         is_diff = (diff>self.diff_threshold2)
         diff_inds = cp.argwhere(cp.ravel(is_diff)).get()

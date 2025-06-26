@@ -113,15 +113,7 @@ def run_all_tests(test_reference_mode = False, write_reference=False):
     #kgs.profiling=False
     #seis_forward.reference_mode = False
     data = kgs.load_all_train_data()
-
-    seis_model.test_mode = True    
-    model = seis_model.default_model()
-    for d in data[::1000]:
-        test_to_reference(d,model,write_reference=write_reference)
-    seis_model.test_mode = False
-
-    test_cost(data[2059], seis_prior.RowTotalVariation())
-
+    
     prior = seis_prior.RestrictFlatAreas()
     prior.underlying_prior = seis_prior.TotalVariation()
     test_prior(prior, data[50]);plt.title('Restrict flat areas')
@@ -132,6 +124,18 @@ def run_all_tests(test_reference_mode = False, write_reference=False):
     test_prior(seis_prior.TotalVariation(), data[20]);plt.title('Total Variation')    
     test_prior(seis_prior.RowTotalVariation(), data[40]);plt.title('Row total variation')    
 
+    
+
+    seis_model.test_mode = True    
+    model = seis_model.default_model()
+    for d in data[::1000]:
+        test_to_reference(d,model,write_reference=write_reference)
+    seis_model.test_mode = False
+
+    test_cost(data[2059], seis_prior.RowTotalVariation())
+
+    
+    
     test_stuff_on_one_case(data[2059], 1e-4, test_reference_mode=test_reference_mode)
     test_stuff_on_one_case(data[-1001], 1e-4, test_reference_mode=test_reference_mode)
 

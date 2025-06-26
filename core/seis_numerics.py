@@ -451,6 +451,8 @@ def bfgs(cost_and_gradient_func, x0, max_iter, tolerance_grad):
         )
         _add_grad(x, t, d)
         opt_cond = flat_grad.abs().max() <= tolerance_grad
+        if n_iter%100==0:
+            print(n_iter, flat_grad.abs().max().detach().cpu().numpy())
        
         # update func eval
         current_evals += ls_func_evals
