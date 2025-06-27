@@ -113,6 +113,14 @@ def run_all_tests(test_reference_mode = False, write_reference=False):
     #kgs.profiling=False
     #seis_forward.reference_mode = False
     data = kgs.load_all_train_data()
+
+
+    prior = seis_prior.TotalVariation()
+    c1 = 200
+    c2 = 200
+    prior.cost_func = lambda x:c1*(1-cp.exp(-x**2/(2*c2**2)))
+    prior.grad_cost_func = lambda x:c1*( (x/(c2**2))*cp.exp(-x**2/(2*c2**2)))
+    test_prior(prior, data[50]);
     
     prior = seis_prior.RestrictFlatAreas()
     prior.underlying_prior = seis_prior.TotalVariation()

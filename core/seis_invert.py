@@ -264,7 +264,7 @@ class InversionModel(kgs.Model):
             cost,gradient,cost_prior, cost_residual = cost_and_gradient(xx, target, self.prior_in_use, basis_functions, compute_gradient=True)           
             if self.show_convergence:
                 if not true_vel is None:
-                    #print(cost, kgs.rms(basis_functions@cp.array(x[:,None])-true_vel.to_vector()))
+                    #print(cost, cp.mean(cp.abs(basis_functions@xx-true_vel.to_vector())))
                     diagnostics['vel_error_per_fev'].append(cp.asnumpy(cp.mean(cp.abs(basis_functions@xx-true_vel.to_vector()))))
                 diagnostics['seis_error_per_fev'].append(cp.asnumpy(cost_residual))
                 diagnostics['total_cost_per_fev'].append(cp.asnumpy(cost))

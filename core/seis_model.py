@@ -105,7 +105,7 @@ def model_TV2D_refine():
     
     #model.prior.λ = 10**-8
     #model.lbfgs_tolerance_grad = 10**2.5
-    model.iter_list = [10000]
+    model.iter_list = [10000] if not test_mode else [5]
 
     model.cache_name = 'model_TV2D_refine'
     model.write_cache = True

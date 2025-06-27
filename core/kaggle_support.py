@@ -442,8 +442,9 @@ def infer_internal_single_parallel(data):
         
         global model_parallel
         global disable_caching
+        global cache_dir_read
         if model_parallel is None:
-            model_parallel,disable_caching = dill_load(temp_dir+'parallel.pickle')
+            model_parallel,disable_caching,cache_dir_read = dill_load(temp_dir+'parallel.pickle')
         t=time.time()
         if data.seismogram.data is None:
             data.seismogram.load_to_memory()
@@ -579,7 +580,7 @@ class Model(BaseClass):
                 t.unload()
             claim_gpu('')
             with multiprocess.Pool(recommend_n_workers()) as p:
-                dill_save(temp_dir+'parallel.pickle', (self,disable_caching))
+                dill_save(temp_dir+'parallel.pickle', (self,disable_caching,cache_dir_read))
                 #result = p.starmap(infer_internal_single_parallel, zip(test_data))            
                 result = list(tqdm(
                     p.imap(infer_internal_single_parallel, test_data),

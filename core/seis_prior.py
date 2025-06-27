@@ -292,8 +292,8 @@ class RestrictFlatAreas(Prior):
         self.basis_vectors = cupyx.scipy.linalg.block_diag(basis_functions, cp.array([[1]], dtype=kgs.base_type_gpu))
         self.basis_vectors = self.basis_vectors/cp.sum(self.basis_vectors,axis=0)
         self.N = self.basis_vectors.shape[1]
-        print(self.N)
-        plt.figure();plt.imshow(np.reshape(plot_list,(70,70)));plt.pause(0.001)
+        #print(self.N)
+        #plt.figure();plt.imshow(np.reshape(plot_list,(70,70)));plt.pause(0.001)
 
     def _compute_cost_and_gradient(self, x, compute_gradient):
         underlying_x = self.basis_vectors@x        
