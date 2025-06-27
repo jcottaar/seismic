@@ -118,6 +118,21 @@ def model_TV2D_refine():
     # model.do_not_cache_mode = False
     return model
 
+def model_TV2D_ultimo():
+    model = model_TV2D()
+    model.iter_list = [3000] if not test_mode else [10]
+    model.prior.λ /= 10
+    model.lbfgs_tolerance_grad = 100.
+    model.cache_name = 'TV2D_ultimo'
+    model.write_cache = True
+    model.read_cache = True
+    old_prior = model.prior
+    model.prior = seis_prior.RestrictFlatAreas()
+    model.prior.underlying_prior = old_prior
+    model.prior.diff_threshold1 = 1.
+    model.prior.rrange = 1
+    return model
+
 def model_TV2Deasy():
     model = model_TV2D()
     model.prior.λ = 10**-7
@@ -130,6 +145,8 @@ def model_TV2Deasy():
     model.read_cache = True
     return model
 
+    
+
 StyleAseen=0
 StyleBseen=0
 FlatVelseen= 0
@@ -140,6 +157,7 @@ class ModelSplit(kgs.Model):
     model_Style_B: kgs.Model = field(init=True, default_factory = model_Style_B)
     model_TV2D   : kgs.Model = field(init=True, default_factory = model_TV2D   )
     model_TV2D_refine: kgs.Model = field(init=True, default_factory = model_TV2D_refine   )
+    model_TV2D_ultimo: kgs.Model = field(init=True, default_factory = model_TV2D_ultimo   )
     model_TV2Deasy: kgs.Model = field(init=True, default_factory = model_TV2Deasy   )
 
     P_identify_style_A = 0
@@ -159,6 +177,7 @@ class ModelSplit(kgs.Model):
         self.model_TV2D.train(train_data, validation_data)
         self.model_TV2D_refine.train(train_data, validation_data)
         self.model_TV2Deasy.train(train_data, validation_data)
+        self.model_TV2D_ultimo.train(train_data, validation_data)
         
 
     def _infer_single(self, data):
@@ -205,6 +224,7 @@ class ModelSplit(kgs.Model):
                     # #print(seis_err_rms_before)
                     # if seis_err_rms_before>self.refine_threshold:
                     data = self.model_TV2D_refine.infer([data])[0]   
+                    data = self.model_TV2D_ultimo.infer([data])[0]   
                         # vel = copy.deepcopy(data.velocity_guess)
                         # vel.to_cupy()
                         # vel.data = vel.data.astype(kgs.base_type_gpu)
