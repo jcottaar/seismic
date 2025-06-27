@@ -120,9 +120,9 @@ def model_TV2D_refine():
 
 def model_TV2D_ultimo():
     model = model_TV2D()
-    model.iter_list = [3000] if not test_mode else [10]
+    model.iter_list = [1500] if not test_mode else [10]
     model.prior.λ /= 10
-    model.lbfgs_tolerance_grad = 100.
+    model.lbfgs_tolerance_grad = 10**2.5
     model.cache_name = 'TV2D_ultimo'
     model.write_cache = True
     model.read_cache = True
