@@ -84,7 +84,6 @@ def model_Style_B():
     model2.cache_name = 'Style_B_refine'
     
     model_full.models = [model,model2]
-    model_full.apply_offset = 1.3
 
     return model_full
 
