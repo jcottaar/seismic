@@ -190,31 +190,31 @@ class SquaredExponential(Prior):
 
     def _prep(self):
 
-        if kgs.calculate_P_matrices:
-            y = cp.arange(-35,35)[:,None]+cp.zeros( (1,70) )
-            x = cp.arange(-35,35)[None,:]+cp.zeros( (70,1) )
-            x = x.flatten()[:,None]
-            y = y.flatten()[:,None]
-            dist_matrix = cp.sqrt((x-x.T)**2+(y-y.T)**2)        
-            K = (self.sigma**2)*cp.exp(-dist_matrix**2/(2*(self.length_scale)**2))        
-            K = K+self.sigma_mean**2
-            K = K+(self.sigma_slope**2)*(y@y.T)
-            K = K+(self.noise**2)*cp.eye(4900)
-            #print(self.sigma, self.sigma_mean, self.sigma_slope, self.noise)
-            #K = (self.noise**2)*cp.eye(4900)
-            K = K.astype(kgs.base_type_gpu)        
-            #self.K = K
-            #plt.figure()
+        
+        y = cp.arange(-35,35)[:,None]+cp.zeros( (1,70) )
+        x = cp.arange(-35,35)[None,:]+cp.zeros( (70,1) )
+        x = x.flatten()[:,None]
+        y = y.flatten()[:,None]
+        dist_matrix = cp.sqrt((x-x.T)**2+(y-y.T)**2)        
+        K = (self.sigma**2)*cp.exp(-dist_matrix**2/(2*(self.length_scale)**2))        
+        K = K+self.sigma_mean**2
+        K = K+(self.sigma_slope**2)*(y@y.T)
+        K = K+(self.noise**2)*cp.eye(4900)
+        #print(self.sigma, self.sigma_mean, self.sigma_slope, self.noise)
+        #K = (self.noise**2)*cp.eye(4900)
+        K = K.astype(kgs.base_type_gpu)        
+        #self.K = K
+        #plt.figure()
+        
+        #plt.semilogy(xx)
+        #plt.title(xx[0]/xx[-1])
+        #plt.pause(0.001)
+        self.P = cp.linalg.inv(K)
+
+        #import cupyx.scipy.sparse
+        #basis_vectors = cupyx.scipy.sparse.identity(4901, dtype=kgs.base_type_gpu)
             
-            #plt.semilogy(xx)
-            #plt.title(xx[0]/xx[-1])
-            #plt.pause(0.001)
-            self.P = cp.linalg.inv(K)
-    
-            #import cupyx.scipy.sparse
-            #basis_vectors = cupyx.scipy.sparse.identity(4901, dtype=kgs.base_type_gpu)
-            
-                
+        if kgs.calculate_P_matrices:        
             basis_vectors = cp.eye(4901, dtype=kgs.base_type_gpu)
             if self.transform:
                 U,s,_=cp.linalg.svd(K,compute_uv=True)
