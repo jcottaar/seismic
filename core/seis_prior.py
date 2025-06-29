@@ -189,44 +189,48 @@ class SquaredExponential(Prior):
         self.λ = 1e-8
 
     def _prep(self):
-        
-        y = cp.arange(-35,35)[:,None]+cp.zeros( (1,70) )
-        x = cp.arange(-35,35)[None,:]+cp.zeros( (70,1) )
-        x = x.flatten()[:,None]
-        y = y.flatten()[:,None]
-        dist_matrix = cp.sqrt((x-x.T)**2+(y-y.T)**2)        
-        K = (self.sigma**2)*cp.exp(-dist_matrix**2/(2*(self.length_scale)**2))        
-        K = K+self.sigma_mean**2
-        K = K+(self.sigma_slope**2)*(y@y.T)
-        K = K+(self.noise**2)*cp.eye(4900)
-        #print(self.sigma, self.sigma_mean, self.sigma_slope, self.noise)
-        #K = (self.noise**2)*cp.eye(4900)
-        K = K.astype(kgs.base_type_gpu)        
-        #self.K = K
-        #plt.figure()
-        
-        #plt.semilogy(xx)
-        #plt.title(xx[0]/xx[-1])
-        #plt.pause(0.001)
-        self.P = cp.linalg.inv(K)
 
-        #import cupyx.scipy.sparse
-        #basis_vectors = cupyx.scipy.sparse.identity(4901, dtype=kgs.base_type_gpu)
-        
+        if kgs.calculate_P_matrices:
+            y = cp.arange(-35,35)[:,None]+cp.zeros( (1,70) )
+            x = cp.arange(-35,35)[None,:]+cp.zeros( (70,1) )
+            x = x.flatten()[:,None]
+            y = y.flatten()[:,None]
+            dist_matrix = cp.sqrt((x-x.T)**2+(y-y.T)**2)        
+            K = (self.sigma**2)*cp.exp(-dist_matrix**2/(2*(self.length_scale)**2))        
+            K = K+self.sigma_mean**2
+            K = K+(self.sigma_slope**2)*(y@y.T)
+            K = K+(self.noise**2)*cp.eye(4900)
+            #print(self.sigma, self.sigma_mean, self.sigma_slope, self.noise)
+            #K = (self.noise**2)*cp.eye(4900)
+            K = K.astype(kgs.base_type_gpu)        
+            #self.K = K
+            #plt.figure()
             
-        basis_vectors = cp.eye(4901, dtype=kgs.base_type_gpu)
-        if self.transform:
-            U,s,_=cp.linalg.svd(K,compute_uv=True)
-            #plt.figure();plt.semilogy(s.get());plt.grid(True);plt.pause(0.001)
-            to_keep = s>self.svd_cutoff
-            basis_vectors = (U[:,to_keep]@cp.diag(cp.sqrt(s[to_keep])))
-            basis_vectors = cp.pad(basis_vectors, ((0, 1), (0, 1)), mode='constant', constant_values=0)
-            basis_vectors[-1, -1] = 1.
-            #self.K = cp.eye(self.basis_vectors.shape[1]-1)
-            self.P = cp.eye(basis_vectors.shape[1]-1)
-
-        self.N = basis_vectors.shape[1]
-        self.basis_vectors = basis_vectors
+            #plt.semilogy(xx)
+            #plt.title(xx[0]/xx[-1])
+            #plt.pause(0.001)
+            self.P = cp.linalg.inv(K)
+    
+            #import cupyx.scipy.sparse
+            #basis_vectors = cupyx.scipy.sparse.identity(4901, dtype=kgs.base_type_gpu)
+            
+                
+            basis_vectors = cp.eye(4901, dtype=kgs.base_type_gpu)
+            if self.transform:
+                U,s,_=cp.linalg.svd(K,compute_uv=True)
+                #plt.figure();plt.semilogy(s.get());plt.grid(True);plt.pause(0.001)
+                to_keep = s>self.svd_cutoff
+                basis_vectors = (U[:,to_keep]@cp.diag(cp.sqrt(s[to_keep])))
+                basis_vectors = cp.pad(basis_vectors, ((0, 1), (0, 1)), mode='constant', constant_values=0)
+                basis_vectors[-1, -1] = 1.
+                #self.K = cp.eye(self.basis_vectors.shape[1]-1)
+                self.P = cp.eye(basis_vectors.shape[1]-1)
+    
+            self.N = basis_vectors.shape[1]
+            self.basis_vectors = basis_vectors
+        else:
+            self.N = 1
+            self.basis_vectors = cp.zeros((4901,1), dtype=kgs.base_type_gpu)
 
     def _compute_cost_and_gradient(self, x, compute_gradient):
 

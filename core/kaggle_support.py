@@ -50,6 +50,7 @@ debugging_mode = 2
 verbosity = 1
 disable_caching = False
 preallocate_matrices = True
+calculate_P_matrices = True
 cache_only_mode = False
 
 match env:
@@ -578,6 +579,8 @@ class Model(BaseClass):
                 writer.writerow(["cache_name","family","time_taken"])
             for t in test_data:
                 t.unload()
+            claim_gpu('cupy')
+            claim_gpu('pytorch')
             claim_gpu('')
             with multiprocess.Pool(recommend_n_workers()) as p:
                 dill_save(temp_dir+'parallel.pickle', (self,disable_caching,cache_dir_read))
