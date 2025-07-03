@@ -17,10 +17,10 @@ def model_FlatVel():
     model = seis_invert.InversionModel()
     model.prior = seis_prior.RowTotalVariation()
     model.prior.λ = 1e-8
-    model.lambda_list = [1e-8]
     model.prior.epsilon = 0.1
-    model.iter_list = [10000] if not test_mode else [30]
-    model.use_new_bfgs = False
+    model.iter_list = [1000] if not test_mode else [30]
+    model.lbfgs_tolerance_change = 1e-9
+    model.lbfgs_tolerance_grad = 1e-7
     model.round_results = True
 
     model.cache_name = 'FlatVel'
@@ -33,7 +33,7 @@ def model_Style_A():
     model_full = kgs.ChainedModel()
     
     model = seis_invert.InversionModel()
-    model.iter_list = [2500] if not test_mode else [50,-50]
+    model.iter_list = [2500] if not test_mode else [50]
     
     model.prior = seis_prior.SquaredExponential()
     model.prior.transform = True

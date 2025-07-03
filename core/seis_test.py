@@ -55,9 +55,9 @@ def test_prior(prior, data):
     prior.check_constraints()
 
     basis_functions = prior.basis_vectors
-    plt.figure(figsize=(20,20))
-    plt.imshow(cp.asnumpy(basis_functions), aspect='auto', cmap='bone', interpolation='none')
-    plt.colorbar()
+    #plt.figure(figsize=(20,20))
+    #plt.imshow(cp.asnumpy(basis_functions), aspect='auto', cmap='bone', interpolation='none')
+    #plt.colorbar()
 
     base_vec = cp.array(np.random.default_rng(seed=0).normal(0,1,(prior.N,1)), dtype=kgs.base_type_gpu)
     offset_vec = 1e-6*cp.array(np.random.default_rng(seed=0).normal(0,1,(prior.N,1)), dtype=kgs.base_type_gpu)
@@ -114,25 +114,8 @@ def run_all_tests(test_reference_mode = False, write_reference=False):
     kgs.disable_caching = True
     data = kgs.load_all_train_data()
 
-
-    prior = seis_prior.TotalVariation()
-    c1 = 200
-    c2 = 200
-    prior.cost_func = lambda x:c1*(1-cp.exp(-x**2/(2*c2**2)))
-    prior.grad_cost_func = lambda x:c1*( (x/(c2**2))*cp.exp(-x**2/(2*c2**2)))
-    test_prior(prior, data[50]);
-    
-    prior = seis_prior.RestrictFlatAreas()
-    prior.underlying_prior = seis_prior.TotalVariation()
-    test_prior(prior, data[50]);plt.title('Restrict flat areas')
-    prior = seis_prior.SquaredExponential()
-    prior.transform = True
-    prior.svd_cutoff = 1.
-    test_prior(prior, data[30]);plt.title('Squared exponential')
-    test_prior(seis_prior.TotalVariation(), data[20]);plt.title('Total Variation')    
-    test_prior(seis_prior.RowTotalVariation(), data[40]);plt.title('Row total variation')    
-
-    
+    test_stuff_on_one_case(data[2059], 1e-4, test_reference_mode=test_reference_mode)
+    test_stuff_on_one_case(data[-1001], 1e-4, test_reference_mode=test_reference_mode)
 
     seis_model.test_mode = True    
     model = seis_model.default_model()
@@ -144,8 +127,24 @@ def run_all_tests(test_reference_mode = False, write_reference=False):
 
     
     
-    test_stuff_on_one_case(data[2059], 1e-4, test_reference_mode=test_reference_mode)
-    test_stuff_on_one_case(data[-1001], 1e-4, test_reference_mode=test_reference_mode)
+    
+
+    prior = seis_prior.TotalVariation()
+    c1 = 200
+    c2 = 200
+    prior.cost_func = lambda x:c1*(1-cp.exp(-x**2/(2*c2**2)))
+    prior.grad_cost_func = lambda x:c1*( (x/(c2**2))*cp.exp(-x**2/(2*c2**2)))
+    test_prior(prior, data[50]);
+    
+    prior = seis_prior.RestrictFlatAreas()
+    prior.underlying_prior = seis_prior.TotalVariation()
+    test_prior(prior, data[50]);#plt.title('Restrict flat areas')
+    prior = seis_prior.SquaredExponential()
+    prior.transform = True
+    prior.svd_cutoff = 1.
+    test_prior(prior, data[30]);#plt.title('Squared exponential')
+    test_prior(seis_prior.TotalVariation(), data[20]);#plt.title('Total Variation')    
+    test_prior(seis_prior.RowTotalVariation(), data[40]);#plt.title('Row total variation')    
 
     kgs.disable_caching = False
 
