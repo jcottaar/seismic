@@ -228,6 +228,7 @@ class SquaredExponential(Prior):
     
             self.N = basis_vectors.shape[1]
             self.basis_vectors = basis_vectors
+            print(self.N)
         else:
             self.N = 1
             self.basis_vectors = cp.zeros((4901,1), dtype=kgs.base_type_gpu)

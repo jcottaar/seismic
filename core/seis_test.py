@@ -112,6 +112,7 @@ def run_all_tests(test_reference_mode = False, write_reference=False):
     #kgs.debugging_mode = 3
     #kgs.profiling=False
     #seis_forward.reference_mode = False
+    kgs.disable_caching = True
     data = kgs.load_all_train_data()
 
 
@@ -146,6 +147,8 @@ def run_all_tests(test_reference_mode = False, write_reference=False):
     
     test_stuff_on_one_case(data[2059], 1e-4, test_reference_mode=test_reference_mode)
     test_stuff_on_one_case(data[-1001], 1e-4, test_reference_mode=test_reference_mode)
+
+    kgs.disable_caching = False
 
     print('All tests passed!')
     
