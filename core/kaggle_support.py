@@ -364,7 +364,7 @@ def infer_internal_single_parallel(data):
         if model_parallel.write_cache and not disable_caching: # will be done later too, but in case we error out later...
             this_cache_dir = cache_dir_write+model_parallel.cache_name+'/'
             os.makedirs(this_cache_dir,exist_ok=True)
-            dill_save(this_cache_dir+return_data.cache_name(), return_data.velocity_guess)
+            dill_save(this_cache_dir+return_data.cache_name(), (return_data.velocity_guess, 'dummy'))
         return return_data
     except Exception as err:
         import traceback
@@ -465,7 +465,7 @@ class Model(BaseClass):
             this_cache_dir = cache_dir_write+self.cache_name+'/'
             os.makedirs(this_cache_dir,exist_ok=True)
             for d in test_data_inferred:
-                dill_save(this_cache_dir+d.cache_name(), (d.velocity_guess, git_commit_id))
+                dill_save(this_cache_dir+d.cache_name(), (d.velocity_guess, 'dummy'))
 
         # Round if desired
         for d in test_data:
@@ -504,7 +504,7 @@ class Model(BaseClass):
                 if self.write_cache and not disable_caching: # will be done later too, but in case we error out later...
                     this_cache_dir = cache_dir_write+self.cache_name+'/'
                     os.makedirs(this_cache_dir,exist_ok=True)
-                    dill_save(this_cache_dir+x.cache_name(), x.velocity_guess)
+                    dill_save(this_cache_dir+x.cache_name(), (x.velocity_guess, 'dummy'))
                 result.append(x)
         return result
 
