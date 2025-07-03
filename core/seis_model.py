@@ -18,7 +18,7 @@ def model_FlatVel():
     model.prior = seis_prior.RowTotalVariation()
     model.prior.λ = 1e-8
     model.prior.epsilon = 0.1
-    model.iter_list = [1000] if not test_mode else [30]
+    model.maxiter = 1000 if not test_mode else 30
     model.lbfgs_tolerance_change = 1e-9
     model.lbfgs_tolerance_grad = 1e-7
     model.round_results = True
@@ -33,7 +33,7 @@ def model_Style_A():
     model_full = kgs.ChainedModel()
     
     model = seis_invert.InversionModel()
-    model.iter_list = [2500] if not test_mode else [50]
+    model.maxiter = 2500 if not test_mode else 50
     
     model.prior = seis_prior.SquaredExponential()
     model.prior.transform = True
@@ -46,7 +46,7 @@ def model_Style_A():
     model.read_cache = True
 
     model2 = copy.deepcopy(model)
-    model2.iter_list = [0]
+    model2.maxiter = 0
     model2.cache_name = 'Style_A_refine'
 
     model_full.models = [model,model2]
@@ -61,7 +61,7 @@ def model_Style_B():
     model_full = kgs.ChainedModel()
     
     model = seis_invert.InversionModel()
-    model.iter_list = [1500] if not test_mode else [50]
+    model.maxiter = 1500 if not test_mode else 50
     #model.iter_list = [3500] if not test_mode else [50];model.lbfgs_tolerance_grad = 10**3.5
     
     
@@ -79,7 +79,7 @@ def model_Style_B():
     model.read_cache = True
 
     model2 = copy.deepcopy(model)
-    model2.iter_list = [7500] if not test_mode else [10]
+    model2.maxiter = 7500 if not test_mode else 10
     model2.seis_error_tolerance = 2.5e-9
     model2.cache_name = 'Style_B_refine'
     
@@ -89,7 +89,7 @@ def model_Style_B():
 
 def model_TV2D():
     model = seis_invert.InversionModel()
-    model.iter_list = [2500] if not test_mode else [75]
+    model.maxiter = 2500 if not test_mode else 75
 
     model.prior = seis_prior.TotalVariation()
     model.prior.λ = 10**-8
@@ -105,7 +105,7 @@ def model_TV2D_refine():
     
     #model.prior.λ = 10**-8
     #model.lbfgs_tolerance_grad = 10**2.5
-    model.iter_list = [10000] if not test_mode else [5]
+    model.maxiter = 10000 if not test_mode else 5
 
     model.cache_name = 'model_TV2D_refine'
     model.write_cache = True
@@ -120,7 +120,7 @@ def model_TV2D_refine():
 
 def model_TV2D_ultimo():
     model = model_TV2D()
-    model.iter_list = [1500] if not test_mode else [10]
+    model.maxiter = 1500 if not test_mode else 10
     model.prior.λ /= 10
     model.lbfgs_tolerance_grad = 10**2.5
     model.cache_name = 'TV2D_ultimo'
@@ -139,7 +139,7 @@ def model_TV2Deasy():
     #model.models[1].model_TV2Deasy.lbfgs_tolerance_grad = 0.
     model.lbfgs_tolerance_grad *= 10**1
     #model.lbfgs_tolerance_grad = 'check'
-    model.iter_list = [600]
+    model.maxiter = 600
     model.cache_name = 'TV2Deasy'
     model.write_cache = True
     model.read_cache = True
