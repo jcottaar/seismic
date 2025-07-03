@@ -161,7 +161,7 @@ def vel_to_seis(vec, vec_diff=None, vec_adjoint=None, adjoint_on_residual=False)
 
     # Preallocate matrices not done above
     global seis_combined, p_complete, lapg_store, seis_combined_diff, p_complete_diff, seis_combined_adjoint, p_complete_adjoint
-    global p_complete_flat, p_complete_diff_flat, p_complete_adjoint_flat
+    global p_complete_flat, p_complete_diff_flat, p_complete_adjoint_flat, lapg_store_flat
     if seis_combined is None:
         seis_combined = cp.zeros((5,999,70),dtype=kgs.base_type_gpu)
         p_complete = cp.zeros((nt+2,nx,nz), dtype=kgs.base_type_gpu)
