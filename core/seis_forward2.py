@@ -291,7 +291,6 @@ def vel_to_seis(vec, vec_diff=None, vec_adjoint=None, adjoint_on_residual=False)
                 s_mod_adjoint[...] = 0
                 if graph_adjoint==0:
                     stream.begin_capture()
-                    print('capturing graph')
                     for it in np.arange(nt-1,-1,-1):                               
                         update_p_adjoint(
                                 (bx, by), (tx, ty),
