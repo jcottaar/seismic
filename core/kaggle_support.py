@@ -1,36 +1,27 @@
+'''
+This module implements several basic support functions and classes for my work in the "Yale/UNC-CH - Geophysical Waveform Inversion" competition, such as:
+- Global variables
+- Support functions
+- Data handling
+- Abstract model definition
+- Metric computation
+'''
+
 import pandas as pd
 import numpy as np
-import scipy as sp
 import dill # like pickle but more powerful
-import itertools
 import os
 import copy
-import json
-import matplotlib.pyplot as plt
-import matplotlib.animation as animation
-import IPython
 from dataclasses import dataclass, field, fields
-import enum
 import typing
-import pathlib
 import multiprocess
 multiprocess.set_start_method('spawn', force=True)
-from decorator import decorator
-from line_profiler import LineProfiler
 import os
 import gc
 import torch
-import concurrent
 import glob
-import cv2
-import h5py
-import time
-import sklearn
 import shutil
-import subprocess
-import inspect
 import csv
-import portalocker
 from tqdm import tqdm
 
 
@@ -45,13 +36,9 @@ elif os.path.isdir('/kaggle/working/'):
 else:
     env = 'vast';
 
-profiling = False
-debugging_mode = 2
-verbosity = 1
-disable_caching = False
+disable_caching = False # If True models do not read or write from cache
 preallocate_matrices = True
 calculate_P_matrices = True
-cache_only_mode = False
 
 match env:
     case 'local':
@@ -80,7 +67,6 @@ match env:
         brendan_model_dir = '/seismic/models/brendan/'
 os.makedirs(temp_dir, exist_ok=True)
 os.makedirs(cache_dir_write, exist_ok=True)
-timing_filename = temp_dir + 'timings.csv'
 
 # How many workers is optimal for parallel pool?
 def recommend_n_workers():
@@ -89,40 +75,17 @@ def recommend_n_workers():
 n_cuda_devices = recommend_n_workers()
 process_name = multiprocess.current_process().name
 if not multiprocess.current_process().name == "MainProcess":
-    print(process_name, multiprocess.current_process()._identity[0])  
     os.environ["CUDA_VISIBLE_DEVICES"] = str(np.mod(multiprocess.current_process()._identity[0], n_cuda_devices))
-    print('CUDA_VISIBLE_DEVICES=', os.environ["CUDA_VISIBLE_DEVICES"]);
 
 import cupy as cp
-
-base_type = np.float32
-base_type_gpu = cp.float32
-base_type_str = 'float'
 
 base_type = np.float64
 base_type_gpu = cp.float64
 base_type_str = 'double'
 
-if not env=='kaggle':
-    import git 
-    repo = git.Repo(search_parent_directories=True)
-    git_commit_id = repo.head.object.hexsha
-else:
-    git_commit_id = 'kaggle'
-
-
 '''
 Helper classes and functions
 '''
-
-def list_attrs(obj):
-    for name, val in inspect.getmembers(obj):
-        if name.startswith("_"):
-            continue
-        # skip methods, but let descriptors through
-        if callable(val) and not isinstance(val, property):
-            continue
-        print(f"{name} = {val}")
 
 def remove_and_make_dir(path):
     try: shutil.rmtree(path)
@@ -134,16 +97,9 @@ def remove_and_make_dir(path):
 class BaseClass:
     _is_frozen: bool = field(default=False, init=False, repr=False)
 
-    def check_constraints(self, debugging_mode_offset = 0):
-        global debugging_mode
-        debugging_mode = debugging_mode+debugging_mode_offset
-        try:
-            if debugging_mode > 0:
-                self._check_types()
-                self._check_constraints()
-            return
-        finally:
-            debugging_mode = debugging_mode - debugging_mode_offset
+    def check_constraints(self):
+        self._check_types()
+        self._check_constraints()
 
     def _check_constraints(self):
         pass
@@ -226,43 +182,6 @@ def claim_gpu(new_claimant):
     else:
         raise Exception('Unrecognized GPU claimant')
 
-@decorator
-def profile_each_line(func, *args, **kwargs):
-    if not profiling:
-        return func(*args, **kwargs)
-    profiler = LineProfiler()
-    profiled_func = profiler(func)
-    try:
-        s=profiled_func(*args, **kwargs)
-        profiler.print_stats()
-        return s
-    except:
-        profiler.print_stats()
-        raise
-
-def profile_print(string):
-    if profiling: print(string)
-
-def download_kaggle_dataset(dataset_name, destination, skip_download=False):
-    remove_and_make_dir(destination)
-    if not skip_download:
-        subprocess.run('kaggle datasets download ' + dataset_name + ' --unzip -p ' + destination, shell=True)
-    subprocess.run('kaggle datasets metadata -p ' + destination + ' ' + dataset_name, shell=True)
-
-def upload_kaggle_dataset(source):
-    if env=='local':
-        source=source.replace('/', '\\')
-    subprocess.run('kaggle datasets version -p ' + source + ' -m ''Update''', shell=True)
-
-def download_cache():
-    remove_and_make_dir(cache_dir_write)
-    download_kaggle_dataset('seismic-cache', cache_dir_write)
-
-def upload_cache():
-    remove_and_make_dir(temp_dir+'/upload_folder')
-    #shutil.make_archive(f'{temp_dir}/upload_folder/cache', 'zip', root_dir = cache_dir)
-    subprocess.run(f"kaggle datasets version -p {cache_dir_write}/ --dir-mode tar -m '{git_commit_id}'", shell=True)
-
 def rms(array):
     return np.sqrt(np.mean(array**2))
 
@@ -293,8 +212,6 @@ class Seismogram(BaseClass):
     def from_vector(self, vec):
         assert vec.shape == (5*999*70,1)
         self.data = cp.reshape(vec, (5,999,70))
-        if debugging_mode >= 2:
-            assert cp.all(self.to_vector()==vec)
 
     def unload(self):
         self.data = None
@@ -330,8 +247,6 @@ class Velocity(BaseClass):
         assert vec.shape == (4901,1)
         self.data = cp.reshape(vec[:-1,0], (70,70))
         self.min_vel = vec[-1,0]
-        if debugging_mode >= 2:
-            assert cp.all(self.to_vector()==vec)
         
 
     def unload(self):
@@ -446,15 +361,10 @@ def infer_internal_single_parallel(data):
         global cache_dir_read
         if model_parallel is None:
             model_parallel,disable_caching,cache_dir_read = dill_load(temp_dir+'parallel.pickle')
-        t=time.time()
         if data.seismogram.data is None:
             data.seismogram.load_to_memory()
         return_data = model_parallel._infer_single(data)
         return_data.seismogram.unload()
-        with portalocker.Lock(timing_filename, mode='a+', timeout=None, newline='') as csvfile:
-            #csvfile.seek(0, os.SEEK_END)
-            writer = csv.writer(csvfile)
-            writer.writerow([data.cache_name(), data.family, time.time()-t])
         if model_parallel.write_cache and not return_data.do_not_cache and not disable_caching: # will be done later too, but in case we error out later...
             this_cache_dir = cache_dir_write+model_parallel.cache_name+'/'
             os.makedirs(this_cache_dir,exist_ok=True)
@@ -485,9 +395,6 @@ class Model(BaseClass):
 
     def train(self, train_data, validation_data):
         if self.state>=1:
-            return
-        if cache_only_mode:
-            self.state=1
             return
         if self.seed is None:
             self.seed = np.random.default_rng(seed=None).integers(0,1e6).item()
@@ -574,9 +481,6 @@ class Model(BaseClass):
     def _infer(self, test_data):
         # Subclass must implement this OR _infer_single
         if self.run_in_parallel:
-            with open(timing_filename, "w", newline="") as f:
-                writer = csv.writer(f)
-                writer.writerow(["cache_name","family","time_taken"])
             for t in test_data:
                 t.unload()
             claim_gpu('cupy')
@@ -642,25 +546,6 @@ def score_metric(data, show_diagnostics=True):
 
     return score,score_per_family,res_all
 
-# def write_submission_file(data, output_file = output_dir+'submission.csv'):
-#     res = dict()
-#     res['oid_ypos'] = []
-#     x_vals = np.arange(1,70,2)
-#     x_vals_names = [ 'x_'+str(x) for x in x_vals ]
-#     for xn in x_vals_names:
-#         res[xn] = []
-#     for ii,d in enumerate(data):
-#         if ii%100==0:print(ii)
-#         name = os.path.basename(d.seismogram.filename[:-4])+'_y_'
-#         data = np.round(d.velocity_guess.data).astype(int)
-#         for y in np.arange(70):
-#             res['oid_ypos'].append(name+str(y))
-#             for x,xn in zip(x_vals, x_vals_names):
-#                 res[xn].append(data[y,x])
-#     print('x')
-#     df = pd.DataFrame(res)
-#     print('xx')
-#     df.to_csv(output_file, index=False)
             
 def write_submission_file(data, output_file = output_dir+'submission.csv', obfuscate=0., do_round = False, do_range = True):
     # precompute x‐positions and header

@@ -4,7 +4,6 @@
 import numpy as np
 import cupy as cp
 import kaggle_support as kgs
-import seis_forward
 import seis_forward2
 import seis_prior
 import seis_invert

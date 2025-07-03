@@ -325,7 +325,6 @@ def _cubic_interpolate(x1, f1, g1, x2, f2, g2, bounds=None):
 
 
 @torch.no_grad()
-@kgs.profile_each_line
 def bfgs(cost_and_gradient_func, x0, max_iter, tolerance_grad):
 
     def _directional_evaluate(x, t, d):
