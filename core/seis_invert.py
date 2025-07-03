@@ -52,6 +52,7 @@ class InversionModel(kgs.Model):
     history_size = 10000
     scaling = 1e15
     lbfgs_tolerance_grad = 1e-7
+    lbfgs_tolerance_change = 0
     seis_error_tolerance = 0.0 # MSE, only for BFGS2
     maxiter= 2000    
     prec_matrix: object = field(init=True, default_factory = lambda:cp.eye(4901))
@@ -283,7 +284,7 @@ class InversionModel(kgs.Model):
             return from_dlpack(cost.toDlpack()), from_dlpack(gradient[:,0].toDlpack())
             #torch.tensor(cp.asnumpy(cost),device='cuda'), torch.tensor(cp.asnumpy(gradient[:,0]),device='cuda')
 
-        result = seis_numerics.bfgs(cost_and_gradient_func, torch.tensor(x_guess[:,0], device='cuda'), maxiter, self.lbfgs_tolerance_grad)
+        result = seis_numerics.bfgs(cost_and_gradient_func, torch.tensor(x_guess[:,0], device='cuda'), maxiter, self.lbfgs_tolerance_grad, self.lbfgs_tolerance_change)
     
         # Extract final result
         final_result = result.detach().cpu().numpy()

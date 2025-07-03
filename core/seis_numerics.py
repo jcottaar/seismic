@@ -325,8 +325,7 @@ def _cubic_interpolate(x1, f1, g1, x2, f2, g2, bounds=None):
 
 
 @torch.no_grad()
-@kgs.profile_each_line
-def bfgs(cost_and_gradient_func, x0, max_iter, tolerance_grad):
+def bfgs(cost_and_gradient_func, x0, max_iter, tolerance_grad, tolerance_change):
 
     def _directional_evaluate(x, t, d):
         xx = x+t*d
@@ -452,7 +451,7 @@ def bfgs(cost_and_gradient_func, x0, max_iter, tolerance_grad):
         _add_grad(x, t, d)
         opt_cond = flat_grad.abs().max() <= tolerance_grad
         #if n_iter%500==0:
-        #    print(n_iter, flat_grad.abs().max().detach().cpu().numpy())
+        #print(n_iter, flat_grad.abs().max().detach().cpu().numpy())
        
         # update func eval
         current_evals += ls_func_evals
@@ -468,6 +467,13 @@ def bfgs(cost_and_gradient_func, x0, max_iter, tolerance_grad):
 
         # optimal condition
         if opt_cond:
+            break
+
+         # lack of progress
+        if d.mul(t).abs().max() <= tolerance_change:
+            break
+
+        if abs(loss - prev_loss) < tolerance_change:
             break
 
     return x
