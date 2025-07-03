@@ -4,7 +4,7 @@ This module implements several basic support functions and classes for my work i
 - Support functions
 - Data handling
 - Abstract model definition
-- Metric computation
+- Metric computation and submission
 '''
 
 import pandas as pd
@@ -138,6 +138,7 @@ def dill_save(filename, data):
     filehandler.close()
     return data
 
+# Set up everything to use PyTorch
 def prep_pytorch(seed, deterministic, deterministic_needs_cpu):
     if seed is None:
         seed = np.random.default_rng(seed=None).integers(0,1e6).item()
@@ -159,6 +160,7 @@ def prep_pytorch(seed, deterministic, deterministic_needs_cpu):
         claim_gpu('pytorch')
     return cpu, device
 
+# Manage GPU memory
 gpu_claimant = ''
 def claim_gpu(new_claimant):
     global gpu_claimant
@@ -180,6 +182,7 @@ def claim_gpu(new_claimant):
     else:
         raise Exception('Unrecognized GPU claimant')
 
+# Root mean square
 def rms(array):
     return np.sqrt(np.mean(array**2))
 
@@ -188,8 +191,9 @@ Data definition and loading
 '''
 @dataclass
 class Seismogram(BaseClass):
-    filename: str = field(init=True, default=None)
-    ind: int = field(init=True, default=None)    
+    # Stores seismogram. May be unloaded.
+    filename: str = field(init=True, default=None) # where the file is stored
+    ind: int = field(init=True, default=None) # which index in the file to load
     data: cp.ndarray = field(init=True, default=None) # 5x999x70
 
     def _check_constraints(self):
@@ -216,17 +220,16 @@ class Seismogram(BaseClass):
 
 @dataclass
 class Velocity(BaseClass):
-    filename: str = field(init=True, default=None)
-    ind: int = field(init=True, default=None)    
+    # Stores velocity. May be unloaded. May be stored on CPU or GPU.
+    filename: str = field(init=True, default=None) # where the file is stored
+    ind: int = field(init=True, default=None) # which index in the file to load
     data: object = field(init=True, default=None) # 70x70, cp or np array
-    min_vel: object = field(init=True, default=None) 
+    min_vel: object = field(init=True, default=None) # represents minimum of velocity profile, but not necessarily exactly equal to it
 
     def _check_constraints(self):
         if not self.data is None:
             assert(self.data.shape == (70,70))
-            #assert(self.data.dtype == base_type_gpu)
             assert(self.min_vel.shape == ())
-            #assert(self.min_vel.dtype == base_type_gpu)
 
     def load_to_memory(self):
         self.data = cp.array( np.load(self.filename, mmap_mode='r')[self.ind,0,:,:], dtype = base_type_gpu )
@@ -246,21 +249,18 @@ class Velocity(BaseClass):
         self.data = cp.reshape(vec[:-1,0], (70,70))
         self.min_vel = vec[-1,0]
         
-
     def unload(self):
         self.data = None
     
 @dataclass
 class Data(BaseClass):
-    is_train: bool = field(init=True, default=False)
-    family: str = field(init=True, default='')
+    # Stores one dataset, combining seismogram, true velocity profile, and inferred velocity profile.
+    is_train: bool = field(init=True, default=False) # train vs test
+    family: str = field(init=True, default='') # which family? only known on train sets, othwerwise set to 'test'
 
     seismogram: Seismogram = field(init=True, default_factory=lambda:Seismogram() )
-    velocity: Velocity = field(init=True, default=None )    
-    velocity_guess: Velocity = field(init=True, default=None )    
-
-    diagnostics: dict = field(init=True, default_factory=dict)
-    do_not_cache: bool = field(init=True, default=False)
+    velocity: Velocity = field(init=True, default=None ) # true
+    velocity_guess: Velocity = field(init=True, default=None ) # inferred (intermediate or final)   
 
     def _check_constraints(self):
         self.seismogram.check_constraints()
@@ -285,6 +285,8 @@ class Data(BaseClass):
         return os.path.basename(self.seismogram.filename[:-4]+'__'+self.family+'__'+str(self.seismogram.ind))
 
 def load_all_train_data(validation_only = False):
+    # Load all training samples. If validation_only = True, only loads those that are considered validation in Brendan Artley's work.
+    # Note that I only use the original dataset attached to the competition, not the full FWI database.
     dirs = glob.glob(data_dir + '/train_samples/*')
     dirs.sort()
     base_data = Data()
@@ -299,7 +301,6 @@ def load_all_train_data(validation_only = False):
         if validation_only:
             files = files[0:1]
         for f in files:
-            #print(f)
             ind1 = f.rfind('seis')
             ind2 = f.rfind('.')
             descriptor = f[ind1+4:ind2]
@@ -319,7 +320,6 @@ def load_all_train_data(validation_only = False):
                     continue
                 base_data.seismogram.filename = d+'/data/data'+str(ii+1)+'.npy'
                 base_data.velocity.filename = d+'/model/model'+str(ii+1)+'.npy'
-                #print(base_data.seismogram.filename)
                 for ind in range(np.load(base_data.seismogram.filename, mmap_mode='r').shape[0]):
                     data_list.append(copy.deepcopy(base_data))
                     data_list[-1].seismogram.ind = ind
@@ -329,9 +329,9 @@ def load_all_train_data(validation_only = False):
     return data_list
 
 def load_all_test_data():
+    # Load the test data for the competition.
     files = glob.glob(data_dir + '/test/*')
     files.sort()
-    #np.random.default_rng(seed=0).shuffle(files)
     data_list = []
     base_data = Data()
     base_data.is_train = False
@@ -341,7 +341,6 @@ def load_all_test_data():
         data_list.append(copy.deepcopy(base_data))
         data_list[-1].seismogram.filename = f        
         data_list[-1].check_constraints()
-
     return data_list
         
 
@@ -349,11 +348,10 @@ def load_all_test_data():
 '''
 General model definition
 '''
-# Function is used below, I ran into issues with multiprocessing if it was not a top-level function
-model_parallel = None
+# Helper function used below, I ran into issues with multiprocessing if this was not a top-level function
+model_parallel = None # The model to use in inference on a parallel pool worker
 def infer_internal_single_parallel(data):    
-    try:
-        
+    try:        
         global model_parallel
         global disable_caching
         global cache_dir_read
@@ -363,7 +361,7 @@ def infer_internal_single_parallel(data):
             data.seismogram.load_to_memory()
         return_data = model_parallel._infer_single(data)
         return_data.seismogram.unload()
-        if model_parallel.write_cache and not return_data.do_not_cache and not disable_caching: # will be done later too, but in case we error out later...
+        if model_parallel.write_cache and not disable_caching: # will be done later too, but in case we error out later...
             this_cache_dir = cache_dir_write+model_parallel.cache_name+'/'
             os.makedirs(this_cache_dir,exist_ok=True)
             dill_save(this_cache_dir+return_data.cache_name(), return_data.velocity_guess)
@@ -373,25 +371,24 @@ def infer_internal_single_parallel(data):
         print(traceback.format_exc())     
         raise
 
-
 @dataclass
 class Model(BaseClass):
-    # Loads one or more cryoET measuerements
+    # Abstract model class
     state: int = field(init=False, default=0) # 0: untrained, 1: trained    
-    run_in_parallel: bool = field(init=False, default=False) 
-    seed: object = field(init=True, default=None)  
-    cache_name: str = field(init=True, default='')
+    run_in_parallel: bool = field(init=False, default=False) # whether to run inference in parallel (if model supports it)
+    seed: object = field(init=True, default=None) # random seed; not actually used I think in this competition
+    cache_name: str = field(init=True, default='') # folder name to cache results
 
-    write_cache: bool = field(init=True, default=False)
-    read_cache: bool = field(init=True, default=False)
-    only_use_cached: bool = field(init=True, default=False)
-    apply_offset: float = field(init=True, default=0.)
-    round_results: bool = field(init=True, default=False)
+    write_cache: bool = field(init=True, default=False) # whether to write newly inferred results to the cache
+    read_cache: bool = field(init=True, default=False) # whether to read previos results from cache, skipping inference
+    round_results: bool = field(init=True, default=False) # whether to round the results to the nearest integer
 
     def _check_constraints(self):
         assert(self.state>=0 and self.state<=1)
 
     def train(self, train_data, validation_data):
+        # Train the model. Not used in any real way in this competition.
+        # This function handles general interface; actual training is in _train.
         if self.state>=1:
             return
         if self.seed is None:
@@ -411,14 +408,16 @@ class Model(BaseClass):
         self.check_constraints()        
 
     def _train(self,train_data, validation_data):
-        pass
-        # No training needed if not overridden
+        # To be implemented by subclass if training is needed.
+        pass        
 
-    #@profile_each_line
     def infer(self, test_data):
-        assert self.state == 1
+        # Infer on test_data. 
+        # This function handles general interface; actual inference is in _infer.
+        assert self.state == 1 # are we trained?
         test_data = copy.deepcopy(test_data)
 
+        # Read results available from cache
         if self.read_cache and not disable_caching:
             this_cache_dir = cache_dir_read+self.cache_name+'/'
             files = set([os.path.basename(x) for x in glob.glob(this_cache_dir+'/*')])
@@ -434,18 +433,19 @@ class Model(BaseClass):
                 else:
                     cached.append(False)
                     test_data.append(d)
-       
+
+        # Make sure true velocity profile is not available
         for t in test_data:
             if not t.velocity is None:
                 t.velocity.unload()
-        if self.only_use_cached:
-            test_data_inferred = test_data
-        else:
-            if len(test_data)>0:
-                test_data_inferred = self._infer(test_data)
-            else:
-                test_data_inferred = []
 
+        # The actual inference
+        if len(test_data)>0:
+            test_data_inferred = self._infer(test_data)
+        else:
+            test_data_inferred = []
+
+        # Combine cached results and inferred results
         if self.read_cache and not disable_caching:
             b_it = iter(test_data_cached)
             c_it = iter(test_data_inferred)        
@@ -460,16 +460,15 @@ class Model(BaseClass):
             t.seismogram.unload()
             t.check_constraints()
 
+        # Write results to cache
         if self.write_cache and not disable_caching:
             this_cache_dir = cache_dir_write+self.cache_name+'/'
             os.makedirs(this_cache_dir,exist_ok=True)
             for d in test_data_inferred:
-                if not d.do_not_cache:
-                    dill_save(this_cache_dir+d.cache_name(), (d.velocity_guess, git_commit_id))
+                dill_save(this_cache_dir+d.cache_name(), (d.velocity_guess, git_commit_id))
 
+        # Round if desired
         for d in test_data:
-            d.velocity_guess.data += self.apply_offset
-            d.velocity_guess.min_vel += self.apply_offset
             if self.round_results:
                 d.velocity_guess.data = np.round(d.velocity_guess.data)
                 d.velocity_guess.min_vel = np.round(d.velocity_guess.min_vel)
@@ -478,15 +477,17 @@ class Model(BaseClass):
 
     def _infer(self, test_data):
         # Subclass must implement this OR _infer_single
+        # If _infer_single is implemented, it will run in parallel if run_in_paralle is True
+        
         if self.run_in_parallel:
             for t in test_data:
                 t.unload()
+            # Free GPU memory
             claim_gpu('cupy')
             claim_gpu('pytorch')
             claim_gpu('')
             with multiprocess.Pool(recommend_n_workers()) as p:
-                dill_save(temp_dir+'parallel.pickle', (self,disable_caching,cache_dir_read))
-                #result = p.starmap(infer_internal_single_parallel, zip(test_data))            
+                dill_save(temp_dir+'parallel.pickle', (self,disable_caching,cache_dir_read))         
                 result = list(tqdm(
                     p.imap(infer_internal_single_parallel, test_data),
                     total=len(test_data),
@@ -494,13 +495,13 @@ class Model(BaseClass):
                     ))
         else:
             result = []
-            for xx in tqdm(test_data, desc="Inferring "+self.cache_name, disable = len(test_data)<=1, smoothing = 0.05):     
-                x = copy.deepcopy(xx)  
+            for this_data in tqdm(test_data, desc="Inferring "+self.cache_name, disable = len(test_data)<=1, smoothing = 0.05):     
+                x = copy.deepcopy(this_data)  
                 if x.seismogram.data is None:
                     x.seismogram.load_to_memory()
                 x = self._infer_single(x)
                 x.seismogram.unload()       
-                if self.write_cache and not x.do_not_cache and not disable_caching: # will be done later too, but in case we error out later...
+                if self.write_cache and not disable_caching: # will be done later too, but in case we error out later...
                     this_cache_dir = cache_dir_write+self.cache_name+'/'
                     os.makedirs(this_cache_dir,exist_ok=True)
                     dill_save(this_cache_dir+x.cache_name(), x.velocity_guess)
@@ -509,6 +510,7 @@ class Model(BaseClass):
 
 @dataclass
 class ChainedModel(Model):
+    # Runs several models in sequence. Later models can make use of the velocity_guess from the earlier model.
     models: list = field(init=True, default_factory=list)
 
     def _train(self,train_data, validation_data):
@@ -520,7 +522,11 @@ class ChainedModel(Model):
             data = m.infer(data)
         return data
 
+'''
+Metric and submission
+'''
 def score_metric(data, show_diagnostics=True):
+    # Score according to competition metrics
     res_all = []
     res_per_family = dict()
     for d in data:
@@ -545,13 +551,14 @@ def score_metric(data, show_diagnostics=True):
     return score,score_per_family,res_all
 
             
-def write_submission_file(data, output_file = output_dir+'submission.csv', obfuscate=0., do_round = False, do_range = True):
+def write_submission_file(data, output_file = output_dir+'submission.csv', do_round = False, do_range = True):
+    # Write submission file. Mosty written by ChatGPT.
+    # Optionally rounds the results, and/or limits them to the 1500-4500 range.
+    
     # precompute x‐positions and header
     x_vals = np.arange(1, 70, 2)
     x_names = [f"x_{x}" for x in x_vals]
     header = ["oid_ypos"] + x_names
-
-    r=np.random.default_rng(seed=0)
 
     with open(output_file, "w", newline="") as f:
         writer = csv.writer(f)
@@ -564,7 +571,7 @@ def write_submission_file(data, output_file = output_dir+'submission.csv', obfus
             name_prefix = f"{base}_y_"
 
             # grab and round your 70×70 numpy array
-            arr = d.velocity_guess.data.astype(np.float32) + (r.uniform(size=d.velocity_guess.data.shape)>0.5)*obfuscate
+            arr = d.velocity_guess.data.astype(np.float32)
             if do_round:
                 arr = np.round(arr).astype(np.int32)
             else:
