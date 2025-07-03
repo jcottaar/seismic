@@ -1,3 +1,7 @@
+'''
+Copied almost verbatim from this work by Brendan Artley: https://www.kaggle.com/code/brendanartley/caformer-full-resolution-improved
+'''
+
 from copy import deepcopy
 from types import MethodType
 
@@ -198,7 +202,6 @@ class DecoderBlock2d(nn.Module):
                 x = self.intermediate_conv(x)
 
         if skip is not None:
-            # print(x.shape, skip.shape)
             x = torch.cat([x, skip], dim=1)
             x = self.attention1(x)
 
@@ -238,7 +241,6 @@ class UnetDecoder2d(nn.Module):
         self.blocks = nn.ModuleList()
 
         for i, (ic, sc, dc) in enumerate(zip(in_channels, skip_channels, decoder_channels)):
-            # print(i, ic, sc, dc)
             self.blocks.append(
                 DecoderBlock2d(
                     ic, sc, dc, 
@@ -359,12 +361,10 @@ class Net(nn.Module):
         # Encoder
         x_in = x
         x= self.backbone(x)
-        # print([_.shape for _ in x])
         x= x[::-1]
 
         # Decoder
         x= self.decoder(x)
-        # print([_.shape for _ in x])
         x_seg= self.seg_head(x[-1])
         x_seg= x_seg[..., 1:-1, 1:-1]
         x_seg= x_seg * 1500 + 3000
