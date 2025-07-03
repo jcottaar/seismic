@@ -213,25 +213,21 @@ class SquaredExponential(Prior):
 
         #import cupyx.scipy.sparse
         #basis_vectors = cupyx.scipy.sparse.identity(4901, dtype=kgs.base_type_gpu)
-            
-        if kgs.calculate_P_matrices:        
-            basis_vectors = cp.eye(4901, dtype=kgs.base_type_gpu)
-            if self.transform:
-                U,s,_=cp.linalg.svd(K,compute_uv=True)
-                #plt.figure();plt.semilogy(s.get());plt.grid(True);plt.pause(0.001)
-                to_keep = s>self.svd_cutoff
-                basis_vectors = (U[:,to_keep]@cp.diag(cp.sqrt(s[to_keep])))
-                basis_vectors = cp.pad(basis_vectors, ((0, 1), (0, 1)), mode='constant', constant_values=0)
-                basis_vectors[-1, -1] = 1.
-                #self.K = cp.eye(self.basis_vectors.shape[1]-1)
-                self.P = cp.eye(basis_vectors.shape[1]-1)
-    
-            self.N = basis_vectors.shape[1]
-            self.basis_vectors = basis_vectors
-            print(self.N)
-        else:
-            self.N = 1
-            self.basis_vectors = cp.zeros((4901,1), dtype=kgs.base_type_gpu)
+                    
+        basis_vectors = cp.eye(4901, dtype=kgs.base_type_gpu)
+        if self.transform:
+            U,s,_=cp.linalg.svd(K,compute_uv=True)
+            #plt.figure();plt.semilogy(s.get());plt.grid(True);plt.pause(0.001)
+            to_keep = s>self.svd_cutoff
+            basis_vectors = (U[:,to_keep]@cp.diag(cp.sqrt(s[to_keep])))
+            basis_vectors = cp.pad(basis_vectors, ((0, 1), (0, 1)), mode='constant', constant_values=0)
+            basis_vectors[-1, -1] = 1.
+            #self.K = cp.eye(self.basis_vectors.shape[1]-1)
+            self.P = cp.eye(basis_vectors.shape[1]-1)
+
+        self.N = basis_vectors.shape[1]
+        self.basis_vectors = basis_vectors
+        print(self.N)
 
     def _compute_cost_and_gradient(self, x, compute_gradient):
 

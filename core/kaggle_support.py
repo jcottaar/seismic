@@ -37,8 +37,6 @@ else:
     env = 'vast';
 
 disable_caching = False # If True models do not read or write from cache
-preallocate_matrices = True
-calculate_P_matrices = True
 
 match env:
     case 'local':
