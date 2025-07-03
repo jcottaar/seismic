@@ -55,9 +55,9 @@ def test_prior(prior, data):
     prior.check_constraints()
 
     basis_functions = prior.basis_vectors
-    #plt.figure(figsize=(20,20))
-    #plt.imshow(cp.asnumpy(basis_functions), aspect='auto', cmap='bone', interpolation='none')
-    #plt.colorbar()
+    # plt.figure(figsize=(20,20))
+    # plt.imshow(cp.asnumpy(basis_functions), aspect='auto', cmap='bone', interpolation='none')
+    # plt.colorbar()
 
     base_vec = cp.array(np.random.default_rng(seed=0).normal(0,1,(prior.N,1)), dtype=kgs.base_type_gpu)
     offset_vec = 1e-6*cp.array(np.random.default_rng(seed=0).normal(0,1,(prior.N,1)), dtype=kgs.base_type_gpu)
@@ -92,6 +92,11 @@ def test_to_reference(d, model, write_reference=False):
     print(d.family)    
     kgs.disable_caching = True
     result = model.infer([d])[0]
+    plt.figure()
+    d.velocity.load_to_memory()
+    plt.imshow(cp.asnumpy(d.velocity.data), aspect='auto', cmap='bone', interpolation='none')
+    plt.colorbar()
+    plt.pause(0.0001)
     if write_reference:
         assert kgs.env=='local'
         ref = kgs.dill_load(kgs.code_dir + '/' + d.family + '_ref.pickle')
@@ -117,18 +122,6 @@ def run_all_tests(test_reference_mode = False, write_reference=False):
     test_stuff_on_one_case(data[2059], 1e-4, test_reference_mode=test_reference_mode)
     test_stuff_on_one_case(data[-1001], 1e-4, test_reference_mode=test_reference_mode)
 
-    seis_model.test_mode = True    
-    model = seis_model.default_model()
-    for d in data[::1000]:
-        test_to_reference(d,model,write_reference=write_reference)
-    seis_model.test_mode = False
-
-    test_cost(data[2059], seis_prior.RowTotalVariation())
-
-    
-    
-    
-
     prior = seis_prior.TotalVariation()
     c1 = 200
     c2 = 200
@@ -144,7 +137,15 @@ def run_all_tests(test_reference_mode = False, write_reference=False):
     prior.svd_cutoff = 1.
     test_prior(prior, data[30]);#plt.title('Squared exponential')
     test_prior(seis_prior.TotalVariation(), data[20]);#plt.title('Total Variation')    
-    test_prior(seis_prior.RowTotalVariation(), data[40]);#plt.title('Row total variation')    
+    test_prior(seis_prior.RowTotalVariation(), data[40]);#plt.title('Row total variation')  
+
+    seis_model.test_mode = True    
+    model = seis_model.default_model()
+    for d in data[::1000]:
+        test_to_reference(d,model,write_reference=write_reference)
+    seis_model.test_mode = False
+
+    test_cost(data[2059], seis_prior.RowTotalVariation())  
 
     kgs.disable_caching = False
 

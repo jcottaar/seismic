@@ -14,6 +14,7 @@ from dataclasses import dataclass, field, fields
 import torch
 from torch.utils.dlpack import to_dlpack, from_dlpack
 import cupyx.scipy.linalg
+import cupyx.scipy.sparse
 
 def cost_and_gradient(x, target, prior, basis_functions, compute_gradient=False):
 # Function to compute our overall cost function and its gradient.
@@ -66,7 +67,9 @@ class InversionModel(kgs.Model):
 
         ## Construct right-hand side
         basis_functions = self._prior_in_use.basis_vectors
-        x_guess = cp.linalg.solve(cp.array(basis_functions.T@basis_functions), basis_functions.T@(velocity_guess.to_vector()))
+        if cupyx.scipy.sparse.issparse(basis_functions):
+            basis_functions = basis_functions.todense()
+        x_guess = cp.linalg.solve(basis_functions.T@basis_functions, basis_functions.T@(velocity_guess.to_vector()))
         x_guess = x_guess.astype(dtype=kgs.base_type)
         target = seismogram.to_vector()
         vec = velocity_guess.to_vector()
@@ -110,10 +113,12 @@ class InversionModel(kgs.Model):
 
         ## Collect stuff
         basis_functions = self._prior_in_use.basis_vectors
+        if cupyx.scipy.sparse.issparse(basis_functions):
+            basis_functions = basis_functions.todense()
         target = seismogram.to_vector()
 
         ## Convert input to the basis in use        
-        x_guess = cp.asnumpy(cp.linalg.solve(cp.array(basis_functions.T@basis_functions), basis_functions.T@(velocity_guess.to_vector())))
+        x_guess = cp.asnumpy(cp.linalg.solve(basis_functions.T@basis_functions, basis_functions.T@(velocity_guess.to_vector())))
         x_guess = x_guess.astype(dtype=kgs.base_type)
         
         ## Define cost function

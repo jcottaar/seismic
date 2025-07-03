@@ -1,26 +1,33 @@
+'''
+Implements priors for use in Bayesian full waveform inversion, as done in seis_invert.py
+'''
+
+
 import numpy as np
 import cupy as cp
 import kaggle_support as kgs
 from dataclasses import dataclass, field, fields
-import matplotlib.pyplot as plt
 import seis_numerics
 import scipy.linalg
 import cupyx.scipy.ndimage
 import cupyx.scipy.linalg
+import cupyx.scipy.sparse
 import copy
 
 @dataclass
 class Prior(kgs.BaseClass):
+    # Abstract prior class
     N: int = field(init=False, default=-1) # number of basis functions
-    λ: float = field(init=False, default=1.)
-    prepped: bool = field(init=False, default=False)
-
-    basis_vectors = 0
+    λ: float = field(init=False, default=1.) # prefactor applied to penalty function
+    prepped: bool = field(init=False, default=False) # if the prior has been prepared by calling its 'prep' function
+    basis_vectors = 0 # the actual basis functions
 
     def _check_constraints(self):
         assert(self.N>0)
 
     def prep(self):
+        # Prepare the prior, implemented in subclass in _prep
+        # Must at least compute the basis functions
         if not self.prepped:
             self._prep()
         self.prepped = True
@@ -28,6 +35,7 @@ class Prior(kgs.BaseClass):
         assert self.basis_vectors.shape == (4901, self.N)
 
     def adapt(self, velocity_guess_np):
+        # Adapt to a specific velocity profile, implemented in subclass in _adapt
         assert self.prepped
         self._adapt(velocity_guess_np)
         assert self.basis_vectors.dtype == kgs.base_type_gpu
@@ -37,14 +45,16 @@ class Prior(kgs.BaseClass):
         pass
 
     def compute_cost_and_gradient(self, x, compute_gradient = False):
+        # Computes the unnormalized log likelihood (cost function) associated with this prior for a given velocity profile x, as well as its gradient.
         assert x.shape == (self.N,1)
 
-        cost, gradient = self._compute_cost_and_gradient(x, compute_gradient)        
-        
+        cost, gradient = self._compute_cost_and_gradient(x, compute_gradient)                
         cost = self.λ * cost
+        
         assert type(cost)==cp.ndarray
         assert cost.dtype == kgs.base_type_gpu
         assert cost.shape == ()
+        
         if compute_gradient:
             gradient = self.λ * gradient
             assert type(gradient)==cp.ndarray
@@ -56,6 +66,9 @@ class Prior(kgs.BaseClass):
 
 @dataclass
 class RowTotalVariation(Prior):
+    # A 1D total variation prior. Each row must be constant. 
+    # The log likelihood/cost function is the mean of the the absolute values of the differences between the rows.
+    # Absolute value is smoothed near zero with factor epsilon.
     epsilon: float = field(init=True, default=0.1)
 
     def __post_init__(self):
@@ -70,7 +83,7 @@ class RowTotalVariation(Prior):
             mat = np.zeros((70,70),dtype=kgs.base_type)
             mat[i_row,:]=1.
             basis_vectors.append(np.concatenate((mat.flatten(), np.array([0]))))
-        basis_vectors.append(np.concatenate((0*mat.flatten(), np.array([1]))))        
+        basis_vectors.append(np.concatenate((0*mat.flatten(), np.array([1])))) # min_vel basis function       
         basis_vectors = np.stack(basis_vectors)
         basis_vectors = basis_vectors.T
         basis_vectors=cp.array(basis_vectors, dtype=kgs.base_type_gpu)
@@ -83,10 +96,11 @@ class RowTotalVariation(Prior):
         cost = cp.mean(cost_per_item)
 
         if compute_gradient:
+            # Thanks ChatGPT!
             sign = diff / cost_per_item     
             gradient = cp.zeros_like(x)        
             gradient[0] = -sign[0]
-            gradient[1:69] = sign[:-1] - sign[1:]            # sign[:-1] = sign[0..67], sign[1:] = sign[1..68]
+            gradient[1:69] = sign[:-1] - sign[1:]
             gradient[69] = sign[-1]
             gradient = gradient/69
         else:
@@ -97,8 +111,11 @@ class RowTotalVariation(Prior):
 
 @dataclass
 class TotalVariation(Prior):
+    # A 2D total variation prior.
+    # The log likelihood/cost function is the mean of the the absolute values of the differences of each point with its neighbors.
+    # Absolute value is smoothed near zero with factor epsilon.
     epsilon: float = field(init=True, default=0.1)
-    cost_func = 0
+    cost_func = 0 # support for other cost function than absolute value - not used in this competition
     grad_cost_func = 0
     
 
@@ -112,7 +129,7 @@ class TotalVariation(Prior):
         self.grad_cost_func = lambda x:x/cp.sqrt(x**2 + self.epsilon**2)
     
     def _prep(self):
-        basis_vectors=cp.eye(4901, dtype=kgs.base_type_gpu)
+        basis_vectors=cupyx.scipy.sparse.csc_matrix(cp.eye(4901, dtype=kgs.base_type_gpu))
         self.basis_vectors = basis_vectors
 
     def _compute_cost_and_gradient(self, x, compute_gradient):
@@ -135,12 +152,7 @@ class TotalVariation(Prior):
         if compute_gradient:
             # number of diff elements
             N = diff.size
-            # split cost_per_item back to match diff1 and diff2
-            #c1 = cost_per_item[:d1_flat.size]
-            #c2 = cost_per_item[d1_flat.size:]
-            # gradient w.r.t. diff elements (chain through sqrt and mean)
-            #g1 = (d1_flat / c1) / N
-            #g2 = (d2_flat / c2) / N
+
             g1 = self.grad_cost_func(d1_flat)/N
             g2 = self.grad_cost_func(d2_flat)/N
             # reshape
@@ -168,19 +180,17 @@ class TotalVariation(Prior):
 
 @dataclass
 class SquaredExponential(Prior):
-    length_scale = np.log(32.4)
-    noise = 0.1
-    sigma = 183.4
-    sigma_mean = 520
-    sigma_slope = 31.4
-    svd_cutoff = 0.
+    # Gaussian Process prior with squared exponential kernel.
+    length_scale = np.log(32.4) # length scale for the SE kernel
+    noise = 0.1 # noise level 
+    sigma = 183.4 # sigma for the SE kernel
+    sigma_mean = 520 # mean for a constant offset
+    sigma_slope = 31.4 # mean for a slope over the depth
+    
+    transform = False # if transform = True, we take as basis function our SVD modes
+    svd_cutoff = 0. # cutoff for the transform above, cutting out low-magnitude SVD modes
 
-    transform = False
-
-    #K = 0
-    P = 0
-    basis_vectors=0
-    use_full = False
+    P = 0 # precompute precision matrix
 
     def __post_init__(self):
         # Mark the object as frozen after initialization        
@@ -190,7 +200,7 @@ class SquaredExponential(Prior):
 
     def _prep(self):
 
-        
+        # Compute covariance matrix
         y = cp.arange(-35,35)[:,None]+cp.zeros( (1,70) )
         x = cp.arange(-35,35)[None,:]+cp.zeros( (70,1) )
         x = x.flatten()[:,None]
@@ -199,51 +209,33 @@ class SquaredExponential(Prior):
         K = (self.sigma**2)*cp.exp(-dist_matrix**2/(2*(self.length_scale)**2))        
         K = K+self.sigma_mean**2
         K = K+(self.sigma_slope**2)*(y@y.T)
-        K = K+(self.noise**2)*cp.eye(4900)
-        #print(self.sigma, self.sigma_mean, self.sigma_slope, self.noise)
-        #K = (self.noise**2)*cp.eye(4900)
+        K = K+(self.noise**2)*cp.eye(4900)        #
         K = K.astype(kgs.base_type_gpu)        
-        #self.K = K
-        #plt.figure()
-        
-        #plt.semilogy(xx)
-        #plt.title(xx[0]/xx[-1])
-        #plt.pause(0.001)
-        self.P = cp.linalg.inv(K)
 
-        #import cupyx.scipy.sparse
-        #basis_vectors = cupyx.scipy.sparse.identity(4901, dtype=kgs.base_type_gpu)
+        # Compute precision matrix
+        self.P = cp.linalg.inv(K)
                     
-        basis_vectors = cp.eye(4901, dtype=kgs.base_type_gpu)
+        # Pick SVD modes
         if self.transform:
             U,s,_=cp.linalg.svd(K,compute_uv=True)
-            #plt.figure();plt.semilogy(s.get());plt.grid(True);plt.pause(0.001)
             to_keep = s>self.svd_cutoff
             basis_vectors = (U[:,to_keep]@cp.diag(cp.sqrt(s[to_keep])))
             basis_vectors = cp.pad(basis_vectors, ((0, 1), (0, 1)), mode='constant', constant_values=0)
-            basis_vectors[-1, -1] = 1.
-            #self.K = cp.eye(self.basis_vectors.shape[1]-1)
+            basis_vectors[-1, -1] = 1. # add the min_vel degree of freedom
             self.P = cp.eye(basis_vectors.shape[1]-1)
+        else:
+            basis_vectors = cupyx.scipy.sparse.csc_matrix(cp.eye(4901, dtype=kgs.base_type_gpu))
 
         self.N = basis_vectors.shape[1]
         self.basis_vectors = basis_vectors
-        print(self.N)
 
     def _compute_cost_and_gradient(self, x, compute_gradient):
 
-        assert not self.use_full
-
-        if self.use_full:
-            cost = x.T@self.P@x
-        else:            
-            cost = x[:-1,:].T@self.P@x[:-1,:]
+        cost = x[:-1,:].T@self.P@x[:-1,:] # don't use the last value of x, corresponding to min_vel
         cost = cost[0,0]
 
         if compute_gradient:
-            if self.use_full:
-                gradient = 2*cp.concatenate((self.P@x[:,:]))[:,None]
-            else:
-                gradient = 2*cp.concatenate((self.P@x[:-1,:], cp.zeros((1,1),kgs.base_type_gpu)))
+            gradient = 2*cp.concatenate((self.P@x[:-1,:], cp.zeros((1,1),kgs.base_type_gpu)))
         else:
             gradient = None
 
@@ -251,50 +243,32 @@ class SquaredExponential(Prior):
 
 @dataclass
 class RestrictFlatAreas(Prior):
-    underlying_prior = 0
-    diff_threshold1 = 1.
-    diff_threshold2 = 30.
-    rrange = 3
+    # Adds an additional restriction to a given prior:
+    # Areas that are approximately flat in the given velocity profile must be exactly flat.
+    underlying_prior = 0 # the actual prior
+    diff_threshold = 1. # an area with differences smaller than this is considered flat
 
     def _prep(self):
-
         self.underlying_prior.prep()
-        assert(cp.all(self.underlying_prior.basis_vectors==cp.eye(4901)))
+        assert(cp.all(self.underlying_prior.basis_vectors==cp.eye(4901))) # other variations not supported
         self.basis_vectors = self.underlying_prior.basis_vectors
         self.N = 4901
 
-
     def _adapt(self, velocity_guess_np):
+        # Find flat areas
         mat = velocity_guess_np.data
-        labels,count = seis_numerics.label_thresholded_components(mat, self.diff_threshold1, connectivity=4)
-
-        mat = cp.array(mat)
-        maxx = cupyx.scipy.ndimage.maximum_filter(mat,self.rrange)
-        minn = -cupyx.scipy.ndimage.maximum_filter(-mat,self.rrange)
-        diff = cp.maximum(cp.abs(mat-maxx), cp.abs(mat-minn))
-        is_diff = (diff>self.diff_threshold2)
-        diff_inds = cp.argwhere(cp.ravel(is_diff)).get()
-    
-    
+        labels,count = seis_numerics.label_thresholded_components(mat, self.diff_threshold, connectivity=4)
         labels = labels.ravel()
-        for i_ind,ind in enumerate(diff_inds):
-            labels[ind] = i_ind+count+1
 
-        plot_list=np.zeros(4900)
-        #labels_mixed = copy.deepcopy(labels)
-        #np.random.default_rng(seed=0).shuffle(labels_mixed)
-        basis_functions = np.zeros((4900,count+len(diff_inds)+1), dtype=kgs.base_type)    
+        # Construct associated basis
+        basis_functions = np.zeros((4900,count+1), dtype=kgs.base_type)    
         for ind in range(4900):
             basis_functions[ind,labels[ind]]=1.
-            plot_list[ind] = labels[ind]
         basis_functions = cp.array(basis_functions)
         basis_functions = basis_functions[:,cp.sum(basis_functions,axis=0)>0]
-
-        self.basis_vectors = cupyx.scipy.linalg.block_diag(basis_functions, cp.array([[1]], dtype=kgs.base_type_gpu))
-        self.basis_vectors = self.basis_vectors/cp.sum(self.basis_vectors,axis=0)
+        self.basis_vectors = cupyx.scipy.linalg.block_diag(basis_functions, cp.array([[1]], dtype=kgs.base_type_gpu)) # add min_vel
+        self.basis_vectors = self.basis_vectors/cp.sum(self.basis_vectors,axis=0) # scale
         self.N = self.basis_vectors.shape[1]
-        #print(self.N)
-        #plt.figure();plt.imshow(np.reshape(plot_list,(70,70)));plt.pause(0.001)
 
     def _compute_cost_and_gradient(self, x, compute_gradient):
         underlying_x = self.basis_vectors@x        

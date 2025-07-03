@@ -1,3 +1,8 @@
+'''
+Implements some numerical helper functions.
+'''
+
+
 import cupy as cp
 import numpy as np
 from scipy.sparse.csgraph import connected_components
@@ -5,36 +10,6 @@ from scipy.sparse import lil_matrix
 import copy
 import kaggle_support as kgs
 from torch.utils.dlpack import to_dlpack, from_dlpack
-
-def closest_neighbor_values(A):
-    """
-    For each element in A, find among its up/down/left/right neighbors
-    the one whose value is closest to A[i,j], and store that neighbor's
-    value in the output array B.
-    """
-    m, n = A.shape
-    
-    # Prepare shifted versions of A; out-of-bounds positions get a large dummy difference
-    # so they will never be chosen.
-    # shift up
-    A_up = cp.empty_like(A);   A_up[1:,:] = A[:-1,:];   A_up[0,:] = cp.inf
-    # shift down
-    A_dn = cp.empty_like(A);   A_dn[:-1,:] = A[1:,:];    A_dn[-1,:] = cp.inf
-    # shift left
-    A_lf = cp.empty_like(A);   A_lf[:,1:] = A[:,:-1];   A_lf[:,0] = cp.inf
-    # shift right
-    A_rt = cp.empty_like(A);   A_rt[:,:-1] = A[:,1:];    A_rt[:,-1] = cp.inf
-
-    # Stack all neighbor values and compute absolute differences:
-    # shape (m, n, 4)
-    neigh_vals = cp.stack([A_up, A_dn, A_lf, A_rt], axis=-1)
-    diffs      = cp.abs(neigh_vals - A[..., cp.newaxis])
-
-    # Find index of the closest neighbor along the last axis, then pick its value
-    idx_closest = cp.argmin(diffs, axis=-1)
-    B = cp.take_along_axis(neigh_vals, idx_closest[..., cp.newaxis], axis=-1)[..., 0]
-
-    return B
     
 def unpad_edge_padded_gradient(v_adjoint: cp.ndarray, nbc: int) -> cp.ndarray:
     """
@@ -147,6 +122,11 @@ def label_thresholded_components(A: np.ndarray,
 
     # 4) reshape back to H×W
     return flat_labels.reshape(H, W), n_labels
+
+'''
+Code below reimplements the PyTorch version of LBFGS.
+Main modification is the use of CUDA kernels to replace a time critical for loop.
+'''
 
 from typing import Optional, Union
 
@@ -368,9 +348,6 @@ def bfgs(cost_and_gradient_func, x0, max_iter, tolerance_grad, tolerance_change)
         ############################################################
         if n_iter == 1:
             d = flat_grad.neg()
-            #old_dirs = []
-            #old_stps = []
-            #ro = []
             H_diag = 1
         else:
             # do lbfgs update (update memory)
@@ -378,21 +355,11 @@ def bfgs(cost_and_gradient_func, x0, max_iter, tolerance_grad, tolerance_change)
             s = d.mul(t)
             ys = y.dot(s)  # y*s
             if ys > 1e-10:
-                # updating memory
-                # if len(old_dirs) == history_size:
-                #     # shift history by one (limited-memory)
-                #     old_dirs.pop(0)
-                #     old_stps.pop(0)
-                #     ro.pop(0)
-
                 # store new direction/step
                 old_dirs[cur_index,:] = y
                 old_stps[cur_index,:] = s
                 ro[cur_index] = 1.0/ys;
                 cur_index+=1
-                #old_dirs.append(y)
-                #old_stps.append(s)
-                #ro.append(1.0 / ys)
 
                 # update scale of initial Hessian approximation
                 H_diag = ys / y.dot(y)  # (y*y)
@@ -401,6 +368,8 @@ def bfgs(cost_and_gradient_func, x0, max_iter, tolerance_grad, tolerance_change)
             # multiplied by the gradient
             num_old = cur_index            
             q = flat_grad.neg()
+
+            # Kernel does the code below:
             # for i in range(num_old - 1, -1, -1):
             #     al[i] = old_stps[i,:].dot(q) * ro[i]
             #     q.add_(old_dirs[i,:], alpha=-al[i])
@@ -412,7 +381,9 @@ def bfgs(cost_and_gradient_func, x0, max_iter, tolerance_grad, tolerance_change)
             # multiply by initial Hessian
             # r/d is the final direction
             d = r = torch.mul(q, H_diag)
-            #for i in range(num_old):
+
+            # Kernel does the code below:
+            # for i in range(num_old):
             #    be_i = old_dirs[i,:].dot(r) * ro[i]
             #    r.add_(old_stps[i,:], alpha=al[i] - be_i)            
             lbfgs_forward_torch(old_stps,
@@ -450,8 +421,6 @@ def bfgs(cost_and_gradient_func, x0, max_iter, tolerance_grad, tolerance_change)
         )
         _add_grad(x, t, d)
         opt_cond = flat_grad.abs().max() <= tolerance_grad
-        #if n_iter%500==0:
-        #print(n_iter, flat_grad.abs().max().detach().cpu().numpy())
        
         # update func eval
         current_evals += ls_func_evals

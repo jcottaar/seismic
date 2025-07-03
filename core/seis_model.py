@@ -115,8 +115,7 @@ def model_TV2D():
     old_prior = model3.prior
     model3.prior = seis_prior.RestrictFlatAreas()
     model3.prior.underlying_prior = old_prior
-    model3.prior.diff_threshold1 = 1.
-    model3.prior.rrange = 1
+    model3.prior.diff_threshold = 1.
 
     # Combine    
     model_full.models = [model,model2,model3]
