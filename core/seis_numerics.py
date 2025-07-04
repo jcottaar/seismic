@@ -124,7 +124,7 @@ def label_thresholded_components(A: np.ndarray,
     return flat_labels.reshape(H, W), n_labels
 
 '''
-Code below reimplements the PyTorch version of LBFGS.
+Code below reimplements the PyTorch version of LBFGS: https://github.com/pytorch/pytorch/blob/v2.7.0/torch/optim/lbfgs.py
 Main modification is the use of CUDA kernels to replace a time critical for loop.
 '''
 
