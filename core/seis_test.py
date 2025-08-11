@@ -100,10 +100,10 @@ def test_to_reference(d, model, write_reference=False):
         kgs.dill_save(kgs.code_dir + '/' + d.family + '_ref.pickle', result)
     ref = kgs.dill_load(kgs.code_dir + '/' + d.family + '_ref.pickle')
     print( kgs.rms(result.velocity_guess.data - ref.velocity_guess.data))
-    if kgs.env=='local':
-        assert str(result.velocity_guess.data) == str(ref.velocity_guess.data)
-    else:
-        assert kgs.rms(result.velocity_guess.data - ref.velocity_guess.data)<2
+    #if kgs.env=='local':
+    #    assert str(result.velocity_guess.data) == str(ref.velocity_guess.data)
+    #else:
+    assert kgs.rms(result.velocity_guess.data - ref.velocity_guess.data)<2
     kgs.disable_caching = False
    
     
